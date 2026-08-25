@@ -87,6 +87,8 @@ def _retry_delay(config: Mapping[str, Any], attempt: int, *, retry_after: int = 
     base = int(retry.get("base_delay_seconds", 60)) if isinstance(retry, Mapping) else 60
     maximum = int(retry.get("max_delay_seconds", 3600)) if isinstance(retry, Mapping) else 3600
     jitter = int(retry.get("jitter_seconds", 15)) if isinstance(retry, Mapping) else 15
+    # C3.2: clamp retry_after to configured max and hard ceiling — prevents oversized Retry-After from exceeding budget
+    retry_after = max(0, min(int(retry_after), maximum, 3600))
     # Deterministic bounded jitter keeps frozen retry state reproducible and
     # avoids synchronized workers without relying on global random state.
     deterministic_jitter = (attempt * 7) % (jitter + 1) if jitter else 0

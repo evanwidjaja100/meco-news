@@ -95,7 +95,8 @@ class TelegramClient:
             if exc.code == 429:
                 raise TelegramSendError("telegram_rate_limited", "Telegram rate limited the request", retry_after=retry_after) from exc
             if 500 <= exc.code <= 599:
-                raise TelegramSendError("telegram_retryable", f"Telegram returned HTTP {exc.code}") from exc
+                # C3.1: raw HTTP 5xx after possible transmission is ambiguous — must not auto-retry
+                raise TelegramSendError("telegram_ambiguous", f"Telegram acceptance is unknown after HTTP {exc.code}") from exc
             raise TelegramSendError("telegram_terminal", f"Telegram rejected the request with HTTP {exc.code}") from exc
         except (TimeoutError, ConnectionResetError) as exc:
             raise TelegramSendError("telegram_ambiguous", "Telegram acceptance is unknown after a transport timeout/reset") from exc
@@ -103,7 +104,8 @@ class TelegramClient:
             reason = getattr(exc, "reason", None)
             if isinstance(reason, socket.timeout | TimeoutError | ConnectionResetError):
                 raise TelegramSendError("telegram_ambiguous", "Telegram acceptance is unknown after a transport failure") from exc
-            raise TelegramSendError("telegram_retryable", "Telegram connection failed before a response") from exc
+            # C3.1: broad transport errors without proven pre-transmission are ambiguous
+            raise TelegramSendError("telegram_ambiguous", "Telegram acceptance is unknown after a transport failure") from exc
         except OSError as exc:
             raise TelegramSendError("telegram_ambiguous", "Telegram acceptance is unknown after an OS transport failure") from exc
         try:
@@ -120,7 +122,8 @@ class TelegramClient:
             if code == 429:
                 raise TelegramSendError("telegram_rate_limited", "Telegram rate limited the request", retry_after=retry_after)
             if isinstance(code, int) and code >= 500:
-                raise TelegramSendError("telegram_retryable", "Telegram returned a retryable error")
+                # C3.1: explicit Telegram envelope 5xx is still ambiguous without proof of non-acceptance
+                raise TelegramSendError("telegram_ambiguous", "Telegram acceptance is unknown after a retryable error")
             raise TelegramSendError("telegram_terminal", "Telegram rejected the request")
         return result
 
