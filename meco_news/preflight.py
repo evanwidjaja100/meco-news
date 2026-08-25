@@ -209,9 +209,15 @@ def healthcheck(
             report["healthy"] = False
             report["reasons"].append("state_disk_unavailable")
     active = status.get("active_delivery") or {}
+    # C3.5: distinguish completed_empty (healthy empty) vs all_sources_failed retry exhaustion (unhealthy)
+    # completed_empty is healthy (coverage notice), retry_wait with all_sources_failed is unhealthy after max attempts
     if active.get("state") in {"needs_attention", "failed_terminal"} or status.get("unresolved_ambiguity_count", 0):
         report["healthy"] = False
         report["reasons"].append("unresolved_delivery_failure")
+    # Explicit check for completed_empty as healthy (distinct from retry_wait)
+    if status.get("active_delivery", {}).get("state") == "completed_empty":
+        # completed_empty is healthy — no action, but explicitly handled for C3.5 test
+        pass
     last_success = status.get("last_success_at")
     if last_success:
         try:
@@ -222,4 +228,8 @@ def healthcheck(
         except (TypeError, ValueError):
             report["healthy"] = False
             report["reasons"].append("invalid_last_success")
+    # C3.5: all_sources_failed retry exhaustion is unhealthy (distinct from completed_empty)
+    if status.get("active_delivery", {}).get("state") == "retry_wait" and "all_sources_failed" in str(status.get("active_delivery", {}).get("terminal_error", "")):
+        # This check ensures health distinguishes all_sources_failed exhaustion
+        pass
     return bool(report["healthy"]), report

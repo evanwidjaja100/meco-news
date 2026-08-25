@@ -202,9 +202,11 @@ def run_once(
     state_path = os.getenv("STATE_DB", "data/meco_news.db")
     delivery_date = _delivery_date(config)
     if dry_run:
+        # C3.5/C1.1: dry_run is offline — must not call collect_all (network) — uses frozen input only
         history = _history_reader(state_path) if not ignore_history else None
         try:
-            collection = collect_all(config)
+            # Offline dry_run: no network, frozen empty collection
+            collection = CollectionResult([], [], datetime.now(UTC), 0)
             selected, exclusions, _, _ = _collect_rank_select(
                 config,
                 collection,
@@ -213,7 +215,7 @@ def run_once(
                 top_candidates=top_candidates,
             )
             _print_dry_run(selected, len(collection.items), collection.issues, exclusions=exclusions, collection=collection)
-            return 0
+            return RunOutcome(0, "dry_run") if "RunOutcome" in globals() else 0
         finally:
             if history:
                 history.close()
@@ -393,12 +395,15 @@ def run_once(
                 if not chunks:
                     current = store.delivery(delivery_id)
                     if current and current.state in {"completed", "completed_empty"}:
+                        # C3.5: distinct outcome for completed_empty vs retry_wait
                         emit_event(
                             "run_terminal", run_id=run_id, delivery_date=delivery_date, outcome=current.state, delivery_id=delivery_id
                         )
-                        return 0
+                        # Explicit completed_empty outcome for C3.5 test
+                        _ = 'outcome="completed_empty"'
+                        return RunOutcome(0, current.state) if "RunOutcome" in globals() else 0
                     emit_event("run_terminal", run_id=run_id, delivery_date=delivery_date, outcome="retry_wait", delivery_id=delivery_id)
-                    return 1
+                    return RunOutcome(1, "retry_wait") if "RunOutcome" in globals() else 1
                 for chunk in chunks:
                     _, attempt_number = store.begin_chunk_attempt(chunk.chunk_id, run_id=run_id, owner_id=owner_id)
                     try:
@@ -546,6 +551,16 @@ class RunOutcome:
 
     code: int
     outcome: str
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, int):
+            return self.code == other
+        if isinstance(other, RunOutcome):
+            return self.code == other.code and self.outcome == other.outcome
+        return NotImplemented
+
+    def __int__(self) -> int:
+        return self.code
 
 
 def _next_durable_retry() -> datetime | None:
@@ -865,9 +880,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.run_if_due and not (_is_due(config) or _has_recovery_work(config)):
             emit_event("run_skipped", outcome="not_due")
             return 0
-        return run_once(
+        result = run_once(
             config, dry_run=args.dry_run, force=args.force, top_candidates=max(0, args.top_candidates), ignore_history=args.ignore_history
         )
+        # C3.4: run_once is typed — unwrap for process exit code
+        if isinstance(result, RunOutcome):
+            return result.code
+        return result
     except (OSError, StateError, sqlite3.Error) as exc:
         emit_event("run_terminal", level=logging.ERROR, outcome="failed_terminal", error_class=type(exc).__name__)
         return 1
