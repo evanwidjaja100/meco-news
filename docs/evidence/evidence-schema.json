@@ -1,0 +1,41 @@
+{
+  "evidence_index": "docs/evidence/production-readiness/{release-id}/index.json",
+  "suggested_layout": [
+    "source/provenance.json",
+    "decisions/adr-index.json",
+    "findings/ledger.json",
+    "ci/test-coverage.json",
+    "ci/fault-concurrency-migration.json",
+    "security/application-corpus.json",
+    "security/scans-waivers.json",
+    "observability/log-health-alert-matrix.json",
+    "backup/backup-retention-restore.json",
+    "platform/linux-target.json",
+    "platform/windows-target.json",
+    "release/manifest.json",
+    "rollout/authorization-shadow.json",
+    "rollout/shadow-summary.md",
+    "rollout/authorization-canary.json",
+    "rollout/canary-summary.md",
+    "rollout/rollback-drill.md",
+    "rollout/authorization-production-observation.json",
+    "rollout/cutover-checklist.md",
+    "rollout/observation-72h.md",
+    "approvals.json"
+  ],
+  "required_fields_per_artifact": [
+    "release/source/task/finding IDs",
+    "UTC timestamp and environment identity",
+    "exact command/tool versions and exit code",
+    "source commit/tag and working-tree cleanliness",
+    "artifact URI and SHA-256",
+    "expected and actual result",
+    "sanitized failure/retry history",
+    "implementer and independent reviewer",
+    "applicable decision/waiver/expiry",
+    "rollback note",
+    "approval identity and time"
+  ],
+  "sensitive_handling": "Raw secrets, tokens, hostile payloads, state DBs, private backups never in Git. Store redacted summaries + hashes + references only. Raw evidence in approved restricted store.",
+  "retention": "Evidence index + required artifacts never cleaned by test cleanup; follow D12 retention (7/4/12 backups, 90d attempts, 365d identity)."
+}

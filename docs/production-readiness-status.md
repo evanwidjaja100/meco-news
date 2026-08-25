@@ -1,15 +1,37 @@
-# Production-readiness status
+# Production-readiness status — NO-GO
 
-The implementation in this snapshot covers the executable portions of Waves 1-7: strict configuration and CLI mode validation; read-only dry-run/history behavior; versioned SQLite migration/backup; leases and immutable generations; outbox chunks and ambiguity resolution; bounded collection, URL/redirect/parser and Telegram boundaries; freshness and dual identity; structured status/health/logging; backup/restore; Docker/Compose and Windows task hardening; packaging, CI scaffolding, tests, and runbooks.
+**Status:** **NO-GO — supervised non-production pilot only**
+**Release state:** `NO-GO` until Closure Gates CG0..CG7 pass (see `PRODUCTION_READINESS_CLOSURE_IMPLEMENTATION_PLAN.md:1844-1858`)
+**Baseline:** commit `249594c` (2026-08-24 imported snapshot, `docs/evidence/c0.1/source-declaration.md`)
+**Decisions:** `docs/decisions/adr-index.json` (D1-D12 decided where applicable; ADR-C03/C04/C05/C06/C08/C09/C10/C11/C13/C15/C16 pending signatures)
+**Finding ledger:** `docs/evidence/c0.1/issue-ledger.md` (F-001..F-028, all Open, each needs red test + impl + review + evidence)
+**Evidence schema:** `docs/evidence/evidence-schema.json`
 
-The following gates require owner or target-host evidence and cannot be honestly completed by a local code change alone:
+No gate may be marked complete because a file or test exists. Completion requires closure-plan evidence and independent review (predecessor `PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md:41-44`).
 
-- restore of the authoritative Git remote/history, protected branch, named approvers, and issue tracking;
-- real secret-manager/Telegram canary credentials and independent operator reconciliation;
-- Linux/NAS and Windows smoke tests under the production identities;
-- registry-pushed final image digest, SBOM, signature, provenance, and dependency/image scan reports;
-- 3-7 day shadow, three-cycle canary, production cutover, and 72-hour observation evidence.
+## Verified local facts (unchanged from 2026-08-24 rebaseline)
 
-Until those artifacts are recorded, operate the service as a supervised pilot in a non-production chat, as required by the implementation plan.
+- 23/23 tests passed, Ruff 0.9.10 check/format passed, mypy 1.15 strict passed, wheel/sdist built.
+- Combined coverage 59% — **fails mandatory 90% gate** and critical-branch proof absent.
+- Compose syntax, PowerShell parsing, shallow build-context sentinel passed.
+- Docker daemon/runtime, target-host, monitoring, release, rollout evidence absent.
+- No usable Git provenance before this snapshot (now declared as imported baseline per `C0.1`).
 
-Local verification completed for this snapshot: 23 offline tests, Ruff check and format, strict mypy, configuration validation, PowerShell parser checks, build-context sentinel, Compose syntax, and wheel/sdist builds. A Docker image build was not executed because the local Docker Desktop Linux engine was unavailable; the pinned base-image manifest was separately verified as multi-architecture.
+## What remains open (all mandatory)
+
+- **CG0 — Provenance/decisions/reproducers:** `C0.1` manifest done, branch `main` local-only, protection requires remote + `branch-protection.json`; `C0.2` decisions frozen but pending owner/release/security signatures; `C0.3` red reproducers for every `F-###` not yet linked.
+- **CG1 — Truthful control plane:** CLI, preflight, health, logging/reporting reproduces false-green per `F-002/003/004/020` (see `PRODUCTION_READINESS_CLOSURE_IMPLEMENTATION_PLAN.md:278-285`).
+- **CG2 — State authority:** migration immutability, non-owner transition, generation-zero, restore active-work (`F-005/006/007/008/011`).
+- **CG3 — Telegram ambiguity/retry/outbox/scheduler** (`F-009/010/011/012/013`).
+- **CG4 — Hostile input/determinism** (`F-014/015/016/017/018/019`).
+- **CG5 — Metrics/alerts/backup/platform** (`F-021/022/023/024/027`).
+- **CG6 — Full CI/coverage/locks/signed candidate** (`F-025/026` + exact-candidate target gates).
+- **CG7 — Shadow/canary/rollback/72h** (`F-028`).
+
+## Target vs verified
+
+*Target architecture* is in `docs/architecture.md` and predecessor Wave 7. *Verified behavior* is this snapshot plus `C0.3` red tests. Do not treat design docs as verification. See closure plan `13` Evidence and Issue Format for required retention.
+
+## Operating posture
+
+Until `RA-P`-authorized `C7.4/W8.4` cutover, operate as **supervised pilot in non-production chat** only. From cutover through `CG7`, permitted posture is `CONTROLLED_PRODUCTION_OBSERVATION` under approved stop thresholds. Unattended production-ready operation only after `CG7` (predecessor `PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md:1891`).
