@@ -38,7 +38,14 @@ def canonical_url(url: str) -> str:
         return url.strip()
 
 
+def _sanitize_scalar(value: str) -> str:
+    # C4.1: replace lone surrogates and other invalid scalars before any processing
+    return "".join("\ufffd" if 0xD800 <= ord(ch) <= 0xDFFF else ch for ch in value)
+
+
 def normalized_title(title: str, source: str = "") -> str:
+    title = _sanitize_scalar(title)
+    source = _sanitize_scalar(source)
     value = unicodedata.normalize("NFKC", title).casefold().strip()
     if source:
         suffix = f" - {source.casefold().strip()}"
@@ -67,6 +74,19 @@ class NewsItem:
     source_host: str = ""
     freshness_reason: str = ""
     quarantine_reason: str = ""
+
+    def __post_init__(self) -> None:
+        # C4.1: scalar validation at model boundary — quarantine lone surrogates before hashing/rendering
+        orig_title = self.title
+        orig_url = self.url
+        self.title = _sanitize_scalar(self.title)
+        self.url = _sanitize_scalar(self.url)
+        self.source = _sanitize_scalar(self.source)
+        self.source_url = _sanitize_scalar(self.source_url)
+        self.summary = _sanitize_scalar(self.summary)
+        if any(0xD800 <= ord(c) <= 0xDFFF for c in orig_title + orig_url):
+            if not self.quarantine_reason:
+                self.quarantine_reason = "invalid_unicode_scalar"
 
     @property
     def url_key(self) -> str:

@@ -128,13 +128,31 @@ def _local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1].casefold()
 
 
+def _is_invalid_scalar(text: str) -> bool:
+    # ponytail: C4.1 — lone surrogates and invalid scalars must be quarantined before hashing/rendering
+    for ch in text:
+        cp = ord(ch)
+        if 0xD800 <= cp <= 0xDFFF:
+            return True
+        if ch == "\ufffd":
+            # Replacement char indicates prior invalid bytes
+            return True
+    return False
+
+
 def _bounded_text(value: object, maximum: int) -> tuple[str, bool]:
     if not isinstance(value, str):
         return "", False
+    # Quarantine invalid scalars before any processing
+    if _is_invalid_scalar(value):
+        return "", True
     value = html.unescape(value)
     value = re.sub(r"<[^>]{0,4096}>", " ", value)
     value = _CONTROL_RE.sub(" ", value)
     value = re.sub(r"\s+", " ", value).strip()
+    # Check again after unescape (may introduce surrogates via entities)
+    if _is_invalid_scalar(value):
+        return "", True
     if len(value) <= maximum:
         return value, False
     return value[: max(0, maximum - 1)].rstrip() + "...", True
@@ -215,6 +233,11 @@ def _parse_xml_once(
 ) -> list[NewsItem]:
     if len(payload) > limits.response_bytes:
         raise SourceDataError("response_too_large")
+    # C4.1: sanitize invalid UTF-8 (e.g., lone surrogate bytes) before parsing so one bad item doesn't abort the whole feed
+    try:
+        payload.decode("utf-8")
+    except UnicodeDecodeError:
+        payload = payload.decode("utf-8", errors="replace").encode("utf-8")
     # ponytail: encoding-independent DTD/entity rejection — C4.3 requires parser-level prohibition before expansion
     lowered = payload.lower()
     if b"<!doctype" in lowered or b"<!entity" in lowered:
