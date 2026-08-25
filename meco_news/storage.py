@@ -55,6 +55,7 @@ class DeliveryInfo:
     state: str
     run_id: str
     config_hash: str
+    target_snapshot: str = ""
     next_attempt_at: str = ""
     terminal_error: str = ""
 
@@ -134,6 +135,7 @@ class StateStore:
                 self._copy_legacy_if_present(legacy)
                 self._record_migration(1)
                 self._record_migration(2)
+                self._record_migration(3)
                 self.connection.commit()
             except Exception:
                 self.connection.rollback()
@@ -164,13 +166,23 @@ class StateStore:
             missing = sorted(required - tables)
             if missing:
                 raise StateError(f"database schema is missing required table(s): {', '.join(missing)}")
+            # Ensure v3 column exists even for DBs created with old SCHEMA_SQL (idempotent)
+            cols = {r[1] for r in self.connection.execute("PRAGMA table_info(deliveries)").fetchall()}
+            if "target_snapshot" not in cols:
+                self.connection.execute("ALTER TABLE deliveries ADD COLUMN target_snapshot TEXT NOT NULL DEFAULT ''")
+                self.connection.commit()
         if current < CURRENT_SCHEMA_VERSION:
             if self.path:
                 self._backup_before_migrate()
             self.connection.execute("BEGIN IMMEDIATE")
             try:
                 self._apply_schema()
+                # Apply per-version alters idempotently
                 for version in range(current + 1, CURRENT_SCHEMA_VERSION + 1):
+                    if version == 3:
+                        cols = {r[1] for r in self.connection.execute("PRAGMA table_info(deliveries)").fetchall()}
+                        if "target_snapshot" not in cols:
+                            self.connection.execute("ALTER TABLE deliveries ADD COLUMN target_snapshot TEXT NOT NULL DEFAULT ''")
                     self._record_migration(version)
                 self.connection.commit()
             except Exception:
@@ -388,14 +400,14 @@ class StateStore:
         if delivery_date is None:
             return self._latest_active()
         row = self.connection.execute(
-            "SELECT delivery_id,delivery_date,generation,kind,state,run_id,config_hash,next_attempt_at,terminal_error FROM deliveries WHERE delivery_date=? AND state NOT IN ('completed','completed_empty','failed_terminal') ORDER BY generation DESC LIMIT 1",
+            "SELECT delivery_id,delivery_date,generation,kind,state,run_id,config_hash,target_snapshot,next_attempt_at,terminal_error FROM deliveries WHERE delivery_date=? AND state NOT IN ('completed','completed_empty','failed_terminal') ORDER BY generation DESC LIMIT 1",
             (delivery_date,),
         ).fetchone()
         return self._delivery(row) if row else None
 
     def delivery(self, delivery_id: int) -> DeliveryInfo | None:
         row = self.connection.execute(
-            "SELECT delivery_id,delivery_date,generation,kind,state,run_id,config_hash,next_attempt_at,terminal_error FROM deliveries WHERE delivery_id=?",
+            "SELECT delivery_id,delivery_date,generation,kind,state,run_id,config_hash,target_snapshot,next_attempt_at,terminal_error FROM deliveries WHERE delivery_id=?",
             (delivery_id,),
         ).fetchone()
         return self._delivery(row) if row else None
@@ -404,8 +416,13 @@ class StateStore:
     def _delivery(row: sqlite3.Row | None) -> DeliveryInfo | None:
         if row is None:
             return None
+        # Handle both v2 (9 cols) and v3 (10 cols) for backward compat during migration
+        if len(row) == 9:
+            return DeliveryInfo(
+                int(row[0]), str(row[1]), int(row[2]), str(row[3]), str(row[4]), str(row[5]), str(row[6]), "", str(row[7] or ""), str(row[8] or "")
+            )
         return DeliveryInfo(
-            int(row[0]), str(row[1]), int(row[2]), str(row[3]), str(row[4]), str(row[5]), str(row[6]), str(row[7] or ""), str(row[8] or "")
+            int(row[0]), str(row[1]), int(row[2]), str(row[3]), str(row[4]), str(row[5]), str(row[6]), str(row[7] or ""), str(row[8] or ""), str(row[9] or "")
         )
 
     def create_delivery(
@@ -416,6 +433,7 @@ class StateStore:
         generation: int | None = None,
         run_id: str | None = None,
         config_hash: str = "",
+        target_snapshot: str = "",
         state: str = "collecting",
     ) -> DeliveryInfo:
         self._ensure_writable()
@@ -427,8 +445,8 @@ class StateStore:
             self.connection.execute("BEGIN IMMEDIATE")
             try:
                 self.connection.execute(
-                    "INSERT INTO deliveries(delivery_date,generation,kind,state,run_id,config_hash,started_at) VALUES (?,?,?,?,?,?,?)",
-                    (delivery_date, generation, kind, state, run_id, config_hash, now),
+                    "INSERT INTO deliveries(delivery_date,generation,kind,state,run_id,config_hash,target_snapshot,started_at) VALUES (?,?,?,?,?,?,?,?)",
+                    (delivery_date, generation, kind, state, run_id, config_hash, target_snapshot, now),
                 )
                 delivery_id = int(self.connection.execute("SELECT last_insert_rowid()").fetchone()[0])
                 self.connection.commit()
@@ -605,6 +623,7 @@ class StateStore:
         messages: Sequence[str],
         *,
         item_chunk_indexes: Mapping[str, int] | None = None,
+        target_snapshot: str = "",
     ) -> DeliveryInfo:
         self._ensure_writable()
         # C2.3: runtime mutations require active delivery lease (checked inside transaction as well if owner supplied)
@@ -619,6 +638,13 @@ class StateStore:
                 delivery = self.delivery(delivery_id)
                 if not delivery or delivery.state not in {"collecting", "retry_wait"}:
                     raise InvalidTransition("delivery is not preparable")
+                # C3.3: freeze target_snapshot on first prepare, verify on subsequent (idempotent)
+                if delivery.target_snapshot and target_snapshot and delivery.target_snapshot != target_snapshot:
+                    raise InvalidTransition("target snapshot mismatch — delivery frozen to different destination")
+                if target_snapshot and not delivery.target_snapshot:
+                    self.connection.execute(
+                        "UPDATE deliveries SET target_snapshot=? WHERE delivery_id=?", (target_snapshot, delivery_id)
+                    )
                 for position, item in enumerate(items):
                     chunk_index = int(item_chunk_indexes.get(item.fingerprint, 0))
                     self.connection.execute(
@@ -1050,7 +1076,7 @@ class StateStore:
 
     def _latest_active(self) -> DeliveryInfo | None:
         row = self.connection.execute(
-            "SELECT delivery_id,delivery_date,generation,kind,state,run_id,config_hash,next_attempt_at,terminal_error FROM deliveries WHERE state NOT IN ('completed','completed_empty','failed_terminal') ORDER BY delivery_id DESC LIMIT 1"
+            "SELECT delivery_id,delivery_date,generation,kind,state,run_id,config_hash,target_snapshot,next_attempt_at,terminal_error FROM deliveries WHERE state NOT IN ('completed','completed_empty','failed_terminal') ORDER BY delivery_id DESC LIMIT 1"
         ).fetchone()
         return self._delivery(row)
 
@@ -1066,6 +1092,7 @@ class StateStore:
             "state": delivery.state,
             "run_id": delivery.run_id,
             "config_hash": delivery.config_hash,
+            "target_snapshot": delivery.target_snapshot,
             "next_attempt_at": delivery.next_attempt_at,
             "terminal_error": delivery.terminal_error,
         }

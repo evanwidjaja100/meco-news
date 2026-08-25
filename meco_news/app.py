@@ -18,6 +18,8 @@ import uuid
 from typing import Any
 from collections.abc import Mapping
 
+import hashlib
+
 from .backup import create_backup, restore_backup
 from .collectors import CollectionResult, collect_all
 from .config import AppConfig, ConfigurationError, load_config, load_dotenv
@@ -27,6 +29,13 @@ from .ranking import deduplicate, filter_fresh, rank_item, select_digest
 from .storage import StateError, StateStore
 from .telegram import TelegramClient, TelegramSendError, build_digest
 from .timezones import get_timezone
+
+
+def _target_snapshot(config: AppConfig) -> str:
+    # C3.3: freeze destination identity — HMAC-like hash of chat + config_hash + parse_mode (token never stored)
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+    raw = f"{chat_id}:{config.config_hash}:HTML:sendMessage"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 LOGGER = logging.getLogger(__name__)
@@ -337,11 +346,13 @@ def run_once(
                     delivery_id=active.delivery_id,
                     delivery_date=active.delivery_date,
                 )
+                snapshot = _target_snapshot(config)
                 store.prepare_delivery(
                     active.delivery_id,
                     built.included_items,
                     built.messages,
                     item_chunk_indexes=built.item_chunk_indexes,
+                    target_snapshot=snapshot,
                 )
                 emit_event(
                     "delivery_prepared",
@@ -358,6 +369,24 @@ def run_once(
                 os.getenv("TELEGRAM_CHAT_ID", ""),
                 config.request_timeout_seconds,
             )
+            # C3.3: verify frozen destination matches current before any send
+            delivery_info = store.delivery(delivery_id)
+            if delivery_info and delivery_info.target_snapshot and delivery_info.target_snapshot != _target_snapshot(config):
+                # Destination changed since freeze — block without send, require manual reconciliation
+                with store.connection:
+                    store.connection.execute(
+                        "UPDATE deliveries SET state='needs_attention', terminal_error='target snapshot mismatch' WHERE delivery_id=?",
+                        (delivery_id,),
+                    )
+                emit_event(
+                    "run_terminal",
+                    run_id=run_id,
+                    delivery_date=delivery_date,
+                    outcome="needs_attention",
+                    reason_code="target_snapshot_mismatch",
+                    delivery_id=delivery_id,
+                )
+                return 1
             while True:
                 store.heartbeat_lease(LEASE_SCOPE, owner_id, config.lease_ttl_seconds)
                 chunks = store.due_chunks(delivery_id)

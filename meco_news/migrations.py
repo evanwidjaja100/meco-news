@@ -5,7 +5,7 @@ from __future__ import annotations
 from hashlib import sha256
 
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS deliveries (
     state TEXT NOT NULL,
     run_id TEXT NOT NULL,
     config_hash TEXT NOT NULL,
+    target_snapshot TEXT NOT NULL DEFAULT '',
     started_at TEXT NOT NULL,
     prepared_at TEXT,
     completed_at TEXT,
@@ -164,6 +165,7 @@ CREATE INDEX IF NOT EXISTS idx_source_results_delivery ON source_results(deliver
 MIGRATION_DESCRIPTIONS = {
     1: "legacy sent_articles/runs adoption",
     2: "durable leases deliveries items chunks and source results",
+    3: "delivery target snapshot for outbox immutability",
 }
 
 # ponytail: immutable per-migration bytes — adding a future migration must not change prior checksums (C2.1)
@@ -311,6 +313,10 @@ CREATE INDEX IF NOT EXISTS idx_article_history_title ON article_history(title_ke
 CREATE INDEX IF NOT EXISTS idx_deliveries_date_state ON deliveries(delivery_date, state);
 CREATE INDEX IF NOT EXISTS idx_chunks_due ON outbox_chunks(state, next_attempt_at);
 CREATE INDEX IF NOT EXISTS idx_source_results_delivery ON source_results(delivery_id);
+""",
+    3: """
+-- C3.3: freeze outbox destination identity — target_snapshot binds chat/config/parse_mode
+ALTER TABLE deliveries ADD COLUMN target_snapshot TEXT NOT NULL DEFAULT '';
 """,
 }
 

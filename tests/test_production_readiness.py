@@ -160,7 +160,7 @@ class LeaseAndOutboxTests(unittest.TestCase):
             connection.commit()
             connection.close()
             with StateStore(path) as store:
-                self.assertEqual(store.schema_version, 2)
+                self.assertEqual(store.schema_version, 3)
                 self.assertTrue(store.already_completed("2026-08-24"))
                 self.assertEqual(store.integrity_check(), "ok")
 
