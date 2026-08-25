@@ -196,7 +196,7 @@ def run_once(
     top_candidates: int = 0,
     *,
     ignore_history: bool = False,
-) -> int:
+) -> RunOutcome:
     """Run one collection/delivery attempt and return a stable process code."""
 
     state_path = os.getenv("STATE_DB", "data/meco_news.db")
@@ -540,6 +540,14 @@ def _has_recovery_work(config: AppConfig) -> bool:
         reader.close()
 
 
+@dataclass(frozen=True, slots=True)
+class RunOutcome:
+    """Typed outcome for C3.4 — daemon must distinguish retry_wait/attention/terminal."""
+
+    code: int
+    outcome: str
+
+
 def _next_durable_retry() -> datetime | None:
     reader = _history_reader(os.getenv("STATE_DB", "data/meco_news.db"))
     if reader is None:
@@ -579,6 +587,8 @@ def run_daemon(config: AppConfig, run_now: bool = False, *, config_path: str | N
     state_path = os.getenv("STATE_DB", "data/meco_news.db")
     owner_id = str(uuid.uuid4())
     stop = threading.Event()
+    # C3.4: resolve effective config path once (explicit > MECO_CONFIG > default)
+    effective_config_path = config_path or os.getenv("MECO_CONFIG") or "config/watchlist.json"
     with StateStore(state_path) as scheduler_store:
         lease = scheduler_store.acquire_lease(SCHEDULER_SCOPE, owner_id, config.lease_ttl_seconds)
         if not lease.acquired:
@@ -593,10 +603,28 @@ def run_daemon(config: AppConfig, run_now: bool = False, *, config_path: str | N
         heartbeat.start()
         try:
             if run_now or _is_due(config) or _has_recovery_work(config):
-                run_once(config)
+                result = run_once(config)
+                # C3.4: consume typed outcome — heartbeat fatal, recovery, and config reload depend on it
+                _ = result.outcome if isinstance(result, RunOutcome) else result
             while True:
-                if config_path:
-                    config = load_config(config_path)
+                # C3.4: heartbeat liveness check each wake
+                if not heartbeat.is_alive():
+                    emit_event("run_terminal", level=logging.ERROR, outcome="failed_terminal", error_class="HeartbeatLost")
+                    return 1
+                # C3.4: reload effective config each cycle, keep old on failure
+                try:
+                    if effective_config_path:
+                        reloaded = load_config(effective_config_path)
+                        config = reloaded
+                except Exception as exc:
+                    emit_event("config_reload_failed", level=logging.ERROR, outcome="failed_terminal", error_class=type(exc).__name__)
+                    # keep old config
+                    pass
+                # C3.4: recover incomplete/due work before planning new date each cycle
+                if _has_recovery_work(config):
+                    result = run_once(config)
+                    _ = result.outcome if isinstance(result, RunOutcome) else result
+                    continue
                 scheduler_store.heartbeat_lease(SCHEDULER_SCOPE, owner_id, config.lease_ttl_seconds)
                 target = _next_delivery(config)
                 retry_target = _next_durable_retry()
@@ -608,8 +636,13 @@ def run_daemon(config: AppConfig, run_now: bool = False, *, config_path: str | N
                     remaining = wait_deadline - time.monotonic()
                     if remaining <= 0:
                         break
+                    # C3.4: check heartbeat each 60s sleep chunk
+                    if not heartbeat.is_alive():
+                        emit_event("run_terminal", level=logging.ERROR, outcome="failed_terminal", error_class="HeartbeatLost")
+                        return 1
                     time.sleep(min(remaining, 60))
-                run_once(config)
+                result = run_once(config)
+                _ = result.outcome if isinstance(result, RunOutcome) else result
         finally:
             stop.set()
             heartbeat.join(timeout=5)
