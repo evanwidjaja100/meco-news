@@ -381,7 +381,8 @@ class StateStore:
 
     def latest_generation(self, delivery_date: str) -> int:
         row = self.connection.execute("SELECT MAX(generation) FROM deliveries WHERE delivery_date=?", (delivery_date,)).fetchone()
-        return int(row[0] or -1)
+        # ponytail: explicit None check — 0 is valid generation and must not become -1
+        return int(row[0] if row[0] is not None else -1)
 
     def active_delivery(self, delivery_date: str | None) -> DeliveryInfo | None:
         if delivery_date is None:

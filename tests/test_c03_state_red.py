@@ -75,34 +75,20 @@ class TestF006MutableChecksum(unittest.TestCase):
     """F-006: historical migration checksums must be immutable when future migration added."""
 
     def test_checksum_immutable_when_schema_grows(self) -> None:
-        # Current implementation hashes whole SCHEMA_SQL, so adding a future table changes prior checksums
-        c1_before = migration_checksum(1)
-        c2_before = migration_checksum(2)
-        extended = SCHEMA_SQL + "\nCREATE TABLE future_dummy(id INTEGER);"
-        # Simulate future catalog by hashing with extended SQL but same description/version
-        from hashlib import sha256
+        import meco_news.migrations as m
 
-        # Recompute what checksum *would* be if SCHEMA_SQL grew — correct catalog must NOT change
-        def bad_checksum(version: int, sql: str, desc: str) -> str:
-            return sha256(f"{version}:{desc}:{sql}".encode()).hexdigest()
-
-        # These are what a bad catalog would produce after adding a table
-        # The invariant: c1_before must equal checksum computed from *immutable* per-migration bytes, not whole SCHEMA_SQL
-        # Since current code uses whole SCHEMA_SQL, extending it would change c1 — bug
-        # We assert that extending SQL would *not* change checksum in a correct catalog
-        # So this test fails on current code because current code *would* change
-        from meco_news.migrations import MIGRATION_DESCRIPTIONS
-
-        d1 = MIGRATION_DESCRIPTIONS.get(1, "")
-        d2 = MIGRATION_DESCRIPTIONS.get(2, "")
-        c1_after_bad = bad_checksum(1, extended, d1)
-        c2_after_bad = bad_checksum(2, extended, d2)
-        # If catalog were immutable, c1_before == c1_after_bad would be True, but bad catalog makes them differ, so we assert equality to expose bug
-        self.assertEqual(
-            c1_before,
-            c1_after_bad,
-            "checksum for v1 must not change when future schema added — current SCHEMA_SQL-dependent hash is mutable",
-        )
+        c1_before = m.migration_checksum(1)
+        c2_before = m.migration_checksum(2)
+        orig = m.SCHEMA_SQL
+        # Simulate future catalog addition — extending global SCHEMA_SQL should NOT change prior checksums
+        m.SCHEMA_SQL = orig + "\nCREATE TABLE future_dummy(id INTEGER);"
+        try:
+            c1_after = m.migration_checksum(1)
+            c2_after = m.migration_checksum(2)
+            self.assertEqual(c1_before, c1_after, "checksum for v1 must not change when future schema added")
+            self.assertEqual(c2_before, c2_after, "checksum for v2 must not change when future schema added")
+        finally:
+            m.SCHEMA_SQL = orig
 
 
 class TestF007NonOwnerCanMutate(unittest.TestCase):
@@ -111,13 +97,12 @@ class TestF007NonOwnerCanMutate(unittest.TestCase):
     def test_prepare_without_lease_should_fail(self) -> None:
         from meco_news.models import NewsItem
         from datetime import datetime, UTC
+        from meco_news.storage import LeaseLost, InvalidTransition, StateError
 
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "state.db"
             with StateStore(path) as store:
                 delivery = store.create_delivery("2026-08-25", config_hash="h")
-                # Acquire lease as owner one, then try to prepare as non-owner / no lease
-                # Current code: prepare_delivery does NOT check lease, so this succeeds but should require lease
                 item = NewsItem(
                     title="LPG terminal",
                     url="https://example.com/lpg",
@@ -126,14 +111,10 @@ class TestF007NonOwnerCanMutate(unittest.TestCase):
                     score=10,
                     topic="lpg_energy",
                 )
-                # Should raise LeaseLost or InvalidTransition if lease required, but currently succeeds
-                try:
+                # Must require live lease — before fix this succeeds (bug), after fix it raises
+                with self.assertRaises((LeaseLost, InvalidTransition, StateError)):
+                    # No lease acquired — should fail closed
                     store.prepare_delivery(delivery.delivery_id, [item], ["<b>hello</b>"])
-                except Exception:
-                    # Correct behavior would raise — but we are in red phase, so this branch means bug is fixed
-                    self.fail("prepare_delivery without lease unexpectedly raised — red test expects it to *succeed* (bug) before fix; invert after C2.3")
-                # If we reach here, bug is present (non-owner could mutate) — force failure to make test red
-                self.fail("BUG REPRODUCED: prepare_delivery succeeded without lease — should require live owner capability (C2.3)")
 
     def test_begin_chunk_without_owner_should_fail(self) -> None:
         # begin_chunk does check lease, so this one should pass after fix but we test the missing check on other mutators

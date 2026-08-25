@@ -688,18 +688,22 @@ def main(argv: list[str] | None = None) -> int:
     parsed_args = parser.parse_args(argv)
     _validate_options(parser, parsed_args)
     args = RunOptions.from_namespace(parsed_args)
-    if not args.dry_run:
-        os.umask(0o077)
-    configure_logging(
-        level="DEBUG" if args.verbose else os.getenv("LOG_LEVEL", "INFO"),
-        file_path=None if args.dry_run else (args.log_file or os.getenv("LOG_FILE", "")) or None,
-    )
+    # ponytail: validate before file side-effects — C1.1 requires no log file on invalid config/dry-run
+    # Configure stdout-only before config so startup_failed never creates a file
+    configure_logging(level="DEBUG" if args.verbose else os.getenv("LOG_LEVEL", "INFO"), file_path=None)
     try:
         config = load_config(args.config)
     except ConfigurationError as exc:
         emit_event("startup_failed", level=logging.ERROR, outcome="preflight_failed", error_class="ConfigurationError")
         print(str(exc), file=sys.stderr)
         return 2
+    if not args.dry_run:
+        os.umask(0o077)
+    # Reconfigure with file logging only after config is proven valid
+    configure_logging(
+        level="DEBUG" if args.verbose else os.getenv("LOG_LEVEL", "INFO"),
+        file_path=None if args.dry_run else (args.log_file or os.getenv("LOG_FILE", "")) or None,
+    )
     if args.dry_run:
         startup_mode = "dry_run"
     elif args.preflight:

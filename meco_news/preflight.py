@@ -11,6 +11,7 @@ from typing import Any
 
 from . import __version__
 from .config import AppConfig
+from .migrations import CURRENT_SCHEMA_VERSION
 from .network import BoundedHTTPClient
 from .storage import StateStore, StateError
 from .telegram import TelegramClient
@@ -91,11 +92,12 @@ def run_preflight(config: AppConfig, *, online: bool = False, state_path: str | 
                 report["schema_version"] = store.schema_version
                 report["application_version"] = __version__
                 report["checks"]["database"] = {
-                    "ok": integrity == "ok" and store.schema_version >= 2,
+                    "ok": integrity == "ok" and store.schema_version == CURRENT_SCHEMA_VERSION,
                     "integrity": integrity,
                     "schema_version": store.schema_version,
                 }
-                if integrity != "ok" or store.schema_version > 2:
+                # ponytail: fail-closed — N-1 (migration_required) and N+1 (newer_incompatible) both set ready=False
+                if integrity != "ok" or store.schema_version != CURRENT_SCHEMA_VERSION:
                     report["ready"] = False
                 report["status"] = store.status_snapshot()
                 leases = {
