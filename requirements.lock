@@ -1,0 +1,4 @@
+# Runtime dependencies are intentionally empty: the service uses the Python
+# standard library for its reviewed production boundary.
+# Build and development pins live in pyproject.toml optional-dependencies.
+

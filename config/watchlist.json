@@ -1,0 +1,257 @@
+{
+  "company": "PT Meco Inoxprima",
+  "timezone": "Asia/Jakarta",
+  "delivery_time": "07:00",
+  "title_dedupe_days": 14,
+  "url_retention_days": 365,
+  "future_skew_hours": 6,
+  "missing_date_policy": "exclude",
+  "lease_ttl_seconds": 180,
+  "daily_min": 5,
+  "daily_max": 7,
+  "max_per_topic": 3,
+  "max_per_domain": 2,
+  "minimum_score": 9,
+  "fallback_score": 5,
+  "request_timeout_seconds": 25,
+  "lookback_days": 7,
+  "limits": {
+    "response_bytes": 5242880,
+    "source_deadline_seconds": 35,
+    "socket_timeout_seconds": 5,
+    "max_redirects": 2,
+    "entries_per_source": 250,
+    "xml_depth": 32,
+    "xml_nodes": 10000,
+    "title_chars": 512,
+    "summary_chars": 2048,
+    "source_chars": 160,
+    "url_chars": 2048,
+    "fuzzy_candidates": 500,
+    "fuzzy_comparisons": 20000,
+    "max_sources": 100,
+    "max_query_chars": 1024
+  },
+  "network_policy": {
+    "allowed_redirect_hosts": [],
+    "same_host_redirects_only": true,
+    "require_https": true
+  },
+  "retry_policy": {
+    "enabled": true,
+    "max_attempts": 4,
+    "base_delay_seconds": 60,
+    "max_delay_seconds": 3600,
+    "jitter_seconds": 15
+  },
+  "trusted_domains": [
+    "meco.co.id",
+    "esdm.go.id",
+    "migas.esdm.go.id",
+    "kemenperin.go.id",
+    "bphmigas.go.id",
+    "pertamina.com",
+    "pertaminapatraniaga.com",
+    "pertamina-pet.com",
+    "antaranews.com",
+    "petromindo.com",
+    "kompas.com",
+    "bisnis.com",
+    "kontan.co.id",
+    "katadata.co.id",
+    "cnbcindonesia.com",
+    "reuters.com"
+  ],
+  "business_signals": [
+    "ekspansi",
+    "expansion",
+    "investasi",
+    "investment",
+    "capex",
+    "proyek",
+    "project",
+    "tender",
+    "procurement",
+    "pengadaan",
+    "konstruksi",
+    "construction",
+    "bangun pabrik",
+    "pabrik baru",
+    "new plant",
+    "kapasitas",
+    "capacity",
+    "terminal baru",
+    "new terminal",
+    "peresmian",
+    "inaugurat"
+    ,"akuisisi"
+    ,"acquisition"
+    ,"kontrak"
+    ,"contract"
+    ,"groundbreaking"
+    ,"kerja sama"
+    ,"partnership"
+    ,"memorandum of understanding"
+    ,"builds"
+    ,"develops"
+    ,"development"
+    ,"membangun"
+    ,"pengembangan"
+  ],
+  "indonesia_terms": [
+    "indonesia",
+    "indonesian",
+    "pertamina",
+    "jakarta",
+    "jawa",
+    "surabaya",
+    "sidoarjo",
+    "sumatra",
+    "kalimantan",
+    "sulawesi",
+    "papua",
+    "bali",
+    "nusantara"
+  ],
+  "negative_terms": [
+    "resep",
+    "recipe",
+    "lowongan kerja",
+    "job vacancy",
+    "loker",
+    "sepak bola",
+    "football",
+    "smartphone",
+    "gadget",
+    "selebriti",
+    "horoskop"
+    ,"peralatan masak"
+    ,"cookware"
+    ,"mobil listrik"
+    ,"electric vehicle"
+    ,"kendaraan listrik"
+    ,"air bersih"
+    ,"karhutla"
+    ,"kecelakaan"
+    ,"gempa"
+    ,"pascagempa"
+    ,"tersangka"
+    ,"penyalahgunaan"
+    ,"teman touring"
+  ],
+  "topics": [
+    {
+      "id": "company",
+      "label": "MECO company mention",
+      "why": "Direct mention of PT Meco Inoxprima, its projects, customers, certifications, or operations.",
+      "strong_terms": ["pt meco inoxprima", "meco inoxprima"],
+      "keywords": ["meco", "inoxprima"]
+    },
+    {
+      "id": "lpg_energy",
+      "label": "LPG storage & downstream energy",
+      "why": "Potential demand for LPG tanks, pressure vessels, storage terminals, transport tanks, and related fabrication.",
+      "strong_terms": ["terminal lpg", "tangki lpg", "lpg storage", "lpg terminal", "skid tank", "mobil tangki lpg"],
+      "keywords": ["lpg", "elpiji", "propane", "butane", "bottling plant", "spbbe", "gas processing", "hilir migas"]
+    },
+    {
+      "id": "fuel_logistics",
+      "label": "Liquid-fuel storage & logistics",
+      "why": "Relevant to aluminium fuel tankers, storage tanks, terminals, and fuel-distribution equipment.",
+      "strong_terms": ["tangki bbm", "terminal bbm", "fuel tanker", "road tanker", "mobil tangki bbm", "mobil tangki pertamina", "fuel storage"],
+      "keywords": ["bbm", "fuel transport", "fuel logistics", "depot", "tank terminal", "storage terminal", "biofuel", "biodiesel", "b50"]
+    },
+    {
+      "id": "aviation_fuel",
+      "label": "Aviation fuelling",
+      "why": "Relevant to aircraft refuellers, aviation fuel terminals, hydrant systems, and airport fuel infrastructure.",
+      "strong_terms": ["aviation fuel terminal", "aircraft refueler", "aircraft refueller", "aviation refuelling", "aviation refueling", "tangki avtur", "aviation fuel truck", "air bp-akr"],
+      "keywords": ["avtur", "aviation fuel", "sustainable aviation fuel", "saf", "dppu", "airport fuel", "hydrant fuel", "bandara", "dirgantara petroindo raya"]
+    },
+    {
+      "id": "process_equipment",
+      "label": "Process plants & industrial equipment",
+      "why": "Potential demand for pressure vessels, heat exchangers, tanks, turnkey process plants, and stainless fabrication.",
+      "strong_terms": ["pressure vessel", "bejana tekan", "heat exchanger", "alat penukar panas", "processing plant", "process equipment"],
+      "keywords": ["autoclave", "industrial tank", "tangki industri", "stainless fabrication", "piping", "turnkey plant", "plant equipment", "boiler", "asme"]
+    },
+    {
+      "id": "energy_projects",
+      "label": "Energy & process infrastructure",
+      "why": "New facilities, expansions, and asset risks can create demand for tanks, vessels, fabrication, inspection, upgrades, and process equipment.",
+      "strong_terms": ["gas infrastructure", "oil and gas infrastructure", "gas processing facility", "refinery project", "terminal construction", "storage project", "gas delivery point"],
+      "keywords": ["lng facility", "lng terminal", "condensate tank", "gas facility", "gas project", "refinery", "kilang", "gas plant", "bio-methanol", "biomethanol", "methanol value chain", "energy infrastructure"]
+    },
+    {
+      "id": "customer_industries",
+      "label": "Customer-industry expansion",
+      "why": "New capacity in food, beverage, agro, chemical, petrochemical, cosmetics, palm oil, and sugar can create equipment demand.",
+      "strong_terms": ["pabrik makanan", "pabrik minuman", "food processing plant", "palm oil mill", "pabrik kelapa sawit", "pabrik gula", "petrochemical plant", "pabrik pangan"],
+      "keywords": ["food processing", "food and beverage", "beverage plant", "makanan minuman", "agroindustri", "agro industry", "palm oil", "kelapa sawit", "edible oil", "sugar mill", "pabrik kimia", "petrokimia", "cosmetics plant"],
+      "requires_any": ["pabrik", "plant", "factory", "mill", "facility", "fasilitas", "kapasitas", "capacity", "ekspansi", "expansion", "investasi", "investment", "proyek", "project", "konstruksi", "construction", "membangun", "build", "produksi", "production", "manufaktur", "manufacturing"]
+    },
+    {
+      "id": "materials_standards",
+      "label": "Materials, standards & regulation",
+      "why": "Changes in stainless steel, aluminium, fabrication standards, or industrial regulation affect cost, compliance, and competitiveness.",
+      "strong_terms": ["stainless steel price", "harga stainless steel", "aluminium price", "harga aluminium", "asme certification", "sertifikasi asme"],
+      "keywords": ["stainless steel", "baja tahan karat", "aluminium", "aluminum", "welding standard", "standar pengelasan", "tuv", "tkdn", "sni", "pressure equipment regulation"],
+      "requires_any": ["industri", "industrial", "manufaktur", "manufacturing", "fabrication", "fabrikasi", "pabrik", "plant", "tank", "tangki", "pressure", "bejana", "welding", "pengelasan", "equipment", "impor", "tarif", "price", "harga"]
+    },
+    {
+      "id": "peer_activity",
+      "label": "Competitor & industry-peer activity",
+      "why": "Projects, certifications, capacity changes, and partnerships at Indonesian fabricators can affect MECO's competitive position.",
+      "strong_terms": ["pt sk metalindo", "pt puspetindo", "pt arezda purnama loka", "pt intan prima kalorindo", "pt lintech duta pratama", "pt maju bersama"],
+      "keywords": ["sk metalindo", "puspetindo", "arezda", "kalorindo", "lintech duta pratama", "heat transfer solutions indonesia"]
+    }
+  ],
+  "rss_feeds": [
+    {
+      "name": "Petromindo Oil & Gas",
+      "url": "https://www.petromindo.com/api/v1/rss/news-category/oil-gas"
+    },
+    {
+      "name": "Petromindo Infrastructure",
+      "url": "https://www.petromindo.com/api/v1/rss/news-category/infrastructure"
+    },
+    {
+      "name": "ANTARA Economy",
+      "url": "https://www.antaranews.com/rss/ekonomi.xml"
+    },
+    {
+      "name": "ANTARA East Java Economy",
+      "url": "https://jatim.antaranews.com/rss/ekonomi.xml"
+    },
+    {
+      "name": "ANTARA East Java Sidoarjo",
+      "url": "https://jatim.antaranews.com/rss/sidoarjo.xml"
+    }
+  ],
+  "google_news": {
+    "enabled": true,
+    "locale": "id",
+    "country": "ID",
+    "edition": "ID:id",
+    "queries": [
+      {"name": "MECO mentions", "query": "\"PT Meco Inoxprima\" OR \"Meco Inoxprima\""},
+      {"name": "LPG storage", "query": "Indonesia \"tangki LPG\" OR Indonesia \"terminal LPG\" OR Indonesia \"LPG storage\" OR Indonesia SPBBE"},
+      {"name": "Fuel logistics", "query": "Indonesia \"terminal BBM\" OR Indonesia \"tangki BBM industri\" OR Indonesia \"fuel storage\" OR Indonesia \"road tanker\" OR Indonesia \"mobil tangki BBM\""},
+      {"name": "Aviation fuel", "query": "Indonesia (avtur OR \"aviation fuel\") (bandara OR airport OR terminal OR refueler OR hydrant)"},
+      {"name": "Process equipment", "query": "Indonesia \"bejana tekan\" OR Indonesia \"pressure vessel\" OR Indonesia \"heat exchanger\" OR Indonesia \"process equipment\""},
+      {"name": "Customer investment", "query": "Indonesia pabrik investasi \"makanan minuman\" OR Indonesia pabrik sawit ekspansi OR Indonesia pabrik gula investasi OR Indonesia pabrik petrokimia investasi"},
+      {"name": "Materials and standards", "query": "Indonesia industri \"stainless steel\" OR Indonesia industri aluminium OR Indonesia ASME manufaktur OR Indonesia TKDN \"alat industri\""}
+      ,{"name": "Official energy updates", "query": "site:esdm.go.id Indonesia LPG OR site:esdm.go.id Indonesia avtur OR site:esdm.go.id Indonesia \"terminal BBM\" OR site:esdm.go.id Indonesia \"gas processing\""}
+      ,{"name": "Industry project intelligence", "query": "site:petromindo.com Indonesia \"gas infrastructure\" OR site:petromindo.com Indonesia \"processing plant\" OR site:petromindo.com Indonesia aluminium plant"}
+      ,{"name": "Industry peers", "query": "\"PT SK Metalindo\" OR Puspetindo OR \"Arezda Purnama Loka\" OR \"Intan Prima Kalorindo\" OR \"Lintech Duta Pratama\""}
+    ]
+  },
+  "gdelt": {
+    "enabled": false,
+    "timespan": "7d",
+    "max_records": 75,
+    "queries": [
+      {"name": "MECO market", "query": "\"Meco Inoxprima\" OR ((Indonesia OR Indonesian) AND (\"LPG storage\" OR \"LPG terminal\" OR \"fuel tanker\" OR \"aviation fuel\" OR \"pressure vessel\" OR \"processing plant\" OR \"food processing plant\" OR \"palm oil mill\"))"}
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+﻿{
+  \"branch\": \"main\",
+  \"status\": \"local-only — no remote configured at C0.1\",
+  \"created\": \"2026-08-25T00:00:00Z\",
+  \"protection_required_before_CG0\": {
+    \"require_pull_request\": true,
+    \"required_reviewers\": 1,
+    \"dismiss_stale_reviews\": true,
+    \"require_code_owner_review\": true,
+    \"required_status_checks\": [\"unit\", \"quality\", \"package\", \"container\"],
+    \"enforce_admins\": true,
+    \"allow_force_push\": false,
+    \"allow_deletion\": false
+  },
+  \"note\": \"This file records intended protection. Actual GitHub branch protection must be applied after remote creation and evidenced with API export before CG0 per F-001/C0.1. Do not invent protection proof.\"
+}

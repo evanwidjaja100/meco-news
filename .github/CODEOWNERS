@@ -1,0 +1,20 @@
+﻿# This repository uses protected branch workflow for production readiness.
+# Owner: PT Meco Inoxprima (to be confirmed in ADR-C03 / D2)
+# Release approver: TBD — must be named before CG0 per C0.1
+
+*       @evanwidjaja100
+docs/decisions/* @evanwidjaja100
+meco_news/storage.py @evanwidjaja100
+meco_news/migrations.py @evanwidjaja100
+meco_news/collectors.py @evanwidjaja100
+meco_news/network.py @evanwidjaja100
+meco_news/urls.py @evanwidjaja100
+meco_news/models.py @evanwidjaja100
+meco_news/ranking.py @evanwidjaja100
+meco_news/telegram.py @evanwidjaja100
+meco_news/config.py @evanwidjaja100
+meco_news/preflight.py @evanwidjaja100
+meco_news/observability.py @evanwidjaja100
+Dockerfile @evanwidjaja100
+compose.yaml @evanwidjaja100
+.github/workflows/* @evanwidjaja100

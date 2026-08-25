@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+data/*.db
+data/*.db-*
+logs/
+backups/
+*.manifest.json
+*.bak
+dist/
+build/
+*.egg-info/
+.coverage

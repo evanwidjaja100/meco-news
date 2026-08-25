@@ -1,0 +1,35 @@
+services:
+  meco-news:
+    build:
+      context: .
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-docker.io/library/python:3.13.7-slim-bookworm@sha256:adafcc17694d715c905b4c7bebd96907a1fd5cf183395f0ebc4d3428bd22d92d}
+    image: meco-news:local
+    restart: unless-stopped
+    stop_grace_period: 30s
+    init: true
+    read_only: true
+    user: "10001:10001"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      STATE_DB: /app/data/meco_news.db
+      MECO_CONFIG: /app/config/watchlist.json
+      UMASK: "077"
+    volumes:
+      - meco-news-data:/app/data
+      - ./config:/app/config:ro
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    command: ["--daemon", "--run-now"]
+
+volumes:
+  meco-news-data:

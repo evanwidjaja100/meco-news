@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools==75.8.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meco-news"
+dynamic = ["version"]
+description = "Bounded, recoverable market-news monitoring for PT Meco Inoxprima"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+license = {text = "UNLICENSED - owner approval required"}
+authors = [{name = "PT Meco Inoxprima"}]
+dependencies = []
+
+[project.scripts]
+meco-news = "meco_news.app:main"
+
+[project.optional-dependencies]
+dev = [
+  "coverage==7.6.10",
+  "pytest==8.3.5",
+  "ruff==0.9.10",
+  "mypy==1.15.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["meco_news*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "meco_news.__version__"}
+
+[tool.ruff]
+line-length = 140
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+packages = ["meco_news"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
