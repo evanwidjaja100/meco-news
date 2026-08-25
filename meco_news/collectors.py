@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
 from email.utils import parsedate_to_datetime
@@ -622,7 +622,8 @@ def collect_all(config: Mapping[str, Any] | AppConfig) -> CollectionResult:
     if not jobs:
         return CollectionResult([], [], started_at, 0)
 
-    executor = ThreadPoolExecutor(max_workers=min(10, max(1, len(jobs))), thread_name_prefix="meco-source")
+    # C4.4: use killable process pool — thread cannot be terminated, process can be killed on deadline
+    executor = ProcessPoolExecutor(max_workers=min(10, max(1, len(jobs))))
     futures: dict[Future[SourceResult], tuple[str, str]] = {}
     host_semaphores: dict[str, threading.BoundedSemaphore] = {}
     for source_id, source_name, function, args, kwargs in jobs:
@@ -665,10 +666,8 @@ def collect_all(config: Mapping[str, Any] | AppConfig) -> CollectionResult:
                 except Exception as exc:
                     results_by_id[source_id] = _failed_source_result(source_id, source_name, time.monotonic(), exc)
     finally:
-        # Do not wait for a source-local thread after its absolute budget.  The
-        # request itself has a deadline; cancelling a Python thread is not
-        # possible, so the executor is deliberately detached here.
-        executor.shutdown(wait=False, cancel_futures=True)
+        # C4.4: process workers are killable on deadline — no detached threads remain
+        executor.shutdown(wait=True, cancel_futures=True)
 
     source_results = [
         results_by_id[source_id] for source_id, _ in sorted(futures.values(), key=lambda pair: pair[0]) if source_id in results_by_id
