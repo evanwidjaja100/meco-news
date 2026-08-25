@@ -86,6 +86,7 @@ class TestF004HealthFalseGreen(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "state.db"
             with StateStore(path) as store:
+                store.acquire_lease("delivery", "owner", 180)
                 delv = store.create_delivery("2026-08-25", config_hash="h")
                 # Prepare with one chunk so we can transition to ambiguous
                 from meco_news.models import NewsItem
@@ -113,6 +114,7 @@ class TestF004HealthFalseGreen(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "state.db"
             with StateStore(path) as store:
+                store.acquire_lease("delivery", "owner", 180)
                 d1 = store.create_delivery("2026-08-24", config_hash="h")
                 store.prepare_delivery(d1.delivery_id, [], ["<b>a</b>"])
                 # Complete it

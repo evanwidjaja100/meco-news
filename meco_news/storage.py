@@ -607,6 +607,10 @@ class StateStore:
         item_chunk_indexes: Mapping[str, int] | None = None,
     ) -> DeliveryInfo:
         self._ensure_writable()
+        # C2.3: runtime mutations require active delivery lease (checked inside transaction as well if owner supplied)
+        info = self.lease_info("delivery")
+        if not info or info["expires_at"] <= _iso():
+            raise LeaseLost("delivery lease required for prepare")
         item_chunk_indexes = item_chunk_indexes or {}
         now = _iso()
         with self._lock:

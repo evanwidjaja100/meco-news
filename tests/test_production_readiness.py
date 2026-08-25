@@ -112,6 +112,7 @@ class LeaseAndOutboxTests(unittest.TestCase):
             path = Path(directory) / "state.db"
             with StateStore(path) as store:
                 self.assertTrue(store.acquire_lease("scheduler", "daemon", 180).acquired)
+                self.assertTrue(store.acquire_lease("delivery", "owner", 180).acquired)
                 delivery = store.create_delivery("2026-08-24", config_hash="hash")
                 item = self._item()
                 store.prepare_delivery(delivery.delivery_id, [item], ["<b>hello</b>"], item_chunk_indexes={item.fingerprint: 0})
@@ -125,6 +126,7 @@ class LeaseAndOutboxTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "state.db"
             with StateStore(path) as store:
+                self.assertTrue(store.acquire_lease("delivery", "owner", 180).acquired)
                 item = self._item()
                 delivery = store.create_delivery("2026-08-24", config_hash="hash")
                 store.prepare_delivery(delivery.delivery_id, [item], ["<b>hello</b>"], item_chunk_indexes={item.fingerprint: 0})
