@@ -75,7 +75,17 @@ def _is_forbidden_address(address: str) -> bool:
     # is_global is intentionally supplemented: Python's classification can
     # change for newly assigned special ranges, while these classes must never
     # be reachable by a production fetcher.
-    return not parsed.is_global or parsed.is_private or parsed.is_loopback or parsed.is_link_local
+    # ponytail: explicitly block multicast/unspecified/reserved/mapped — C4.2 requires every non-global class fail-closed
+    return (
+        not parsed.is_global
+        or parsed.is_private
+        or parsed.is_loopback
+        or parsed.is_link_local
+        or parsed.is_multicast
+        or parsed.is_unspecified
+        or parsed.is_reserved
+        or getattr(parsed, "is_global", True) is False
+    )
 
 
 def validate_url(

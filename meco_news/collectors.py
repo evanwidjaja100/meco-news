@@ -215,9 +215,19 @@ def _parse_xml_once(
 ) -> list[NewsItem]:
     if len(payload) > limits.response_bytes:
         raise SourceDataError("response_too_large")
+    # ponytail: encoding-independent DTD/entity rejection — C4.3 requires parser-level prohibition before expansion
     lowered = payload.lower()
     if b"<!doctype" in lowered or b"<!entity" in lowered:
         raise SourceDataError("xml_dtd_disallowed")
+    for enc in ("utf-8", "utf-8-sig", "utf-16", "utf-16-le", "utf-16-be", "utf-32", "utf-32-le", "utf-32-be"):
+        try:
+            text = payload.decode(enc).lower()
+            if "<!doctype" in text or "<!entity" in text:
+                raise SourceDataError("xml_dtd_disallowed")
+        except SourceDataError:
+            raise
+        except (UnicodeDecodeError, ValueError):
+            continue
     parser = ET.XMLPullParser(events=("start", "end"))
     depth = 0
     nodes = 0
@@ -302,6 +312,8 @@ def parse_feed_result(
     quarantine: list[str] = []
     try:
         return _parse_xml_once(payload, feed_name, collector, query_name, source_id, chosen_limits, quarantine), quarantine
+    except MemoryError:
+        raise
     except ET.ParseError:
         raise
     except SourceDataError:

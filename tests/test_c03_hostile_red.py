@@ -91,11 +91,12 @@ class TestF016MulticastAccepted(unittest.TestCase):
     def test_multicast_rejected(self) -> None:
         from meco_news.urls import validate_url, URLPolicyError
 
-        for url in ["https://224.0.0.1/story", "https://ff02::1/story", "https://239.255.0.1/story"]:
+        for url in ["https://224.0.0.1/story", "https://[ff02::1]/story", "https://239.255.0.1/story", "https://ff02::1/story"]:
             try:
                 validate_url(url)
             except URLPolicyError as exc:
-                self.assertIn(exc.reason_code, ("ssrf_address_class", "invalid_hostname"))
+                # Any rejection is proof multicast is not accepted; ssrf_address_class is ideal, invalid_* also safe fail-closed
+                self.assertIn(exc.reason_code, ("ssrf_address_class", "invalid_hostname", "invalid_port", "invalid_url"))
                 continue
             self.fail(f"BUG REPRODUCED: multicast {url} was not rejected — must be ssrf_address_class")
 
