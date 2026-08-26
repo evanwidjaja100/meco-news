@@ -9,13 +9,13 @@
 
 No gate may be marked complete because a file or test exists. Completion requires closure-plan evidence and independent review (predecessor `PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md:41-44`).
 
-## Verified local facts (unchanged from 2026-08-24 rebaseline)
+## Verified local facts (2026-08-26 — Windows primary, Docker exact-candidate only)
 
-- 23/23 tests passed, Ruff 0.9.10 check/format passed, mypy 1.15 strict passed, wheel/sdist built.
-- Combined coverage 59% — **fails mandatory 90% gate** and critical-branch proof absent.
-- Compose syntax, PowerShell parsing, shallow build-context sentinel passed.
-- Docker daemon/runtime, target-host, monitoring, release, rollout evidence absent.
-- No usable Git provenance before this snapshot (now declared as imported baseline per `C0.1`).
+- 150 tests passed (was 23/23 at rebaseline), Ruff 0.9.10 check/format passed, mypy 1.15 strict passed, wheel/sdist built.
+- **90% total coverage** (`3118 stmts`, `258 miss`) — passes `C6.1` `≥90%` (was `59%`).
+- Compose syntax, PowerShell `install-windows-task.ps1` parsing, **text** `build-context` sentinel passed; **actual** `context/layer` is `C6.4/C6.6` exact-candidate only (requires `docker buildx`).
+- **Windows Task** (`S4U`, `IgnoreNew`, `StartWhenAvailable`, `venv` `.\.venv\Scripts\python.exe`) is the **primary** deployment — `Docker` is **not** required for `CG0..CG5` local. `Linux/NAS` `Docker` is `C6.6` exact-candidate only.
+- No usable Git provenance before this snapshot (now declared as imported baseline per `C0.1`); `main` at `dfba24b` is `90%` local.
 
 ## What remains open (all mandatory)
 
