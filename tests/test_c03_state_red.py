@@ -114,7 +114,7 @@ class TestF007NonOwnerCanMutate(unittest.TestCase):
                 # Must require live lease — before fix this succeeds (bug), after fix it raises
                 with self.assertRaises((LeaseLost, InvalidTransition, StateError)):
                     # No lease acquired — should fail closed
-                    store.prepare_delivery(delivery.delivery_id, [item], ["<b>hello</b>"])
+                    store.prepare_delivery(delivery.delivery_id, [item], ["<b>hello</b>"], owner_id="no-lease")
 
     def test_begin_chunk_without_owner_should_fail(self) -> None:
         # begin_chunk does check lease, so this one should pass after fix but we test the missing check on other mutators

@@ -622,19 +622,19 @@ class StateStore:
         items: Sequence[NewsItem],
         messages: Sequence[str],
         *,
+        owner_id: str,
         item_chunk_indexes: Mapping[str, int] | None = None,
         target_snapshot: str = "",
     ) -> DeliveryInfo:
         self._ensure_writable()
-        # C2.3: runtime mutations require active delivery lease (checked inside transaction as well if owner supplied)
-        info = self.lease_info("delivery")
-        if not info or info["expires_at"] <= _iso():
-            raise LeaseLost("delivery lease required for prepare")
+        # C2.3: every runtime mutation is bound to the current lease owner.
+        self._assert_lease_owner(owner_id)
         item_chunk_indexes = item_chunk_indexes or {}
         now = _iso()
         with self._lock:
             self.connection.execute("BEGIN IMMEDIATE")
             try:
+                self._assert_lease_owner(owner_id)
                 delivery = self.delivery(delivery_id)
                 if not delivery or delivery.state not in {"collecting", "retry_wait"}:
                     raise InvalidTransition("delivery is not preparable")
@@ -730,17 +730,15 @@ class StateStore:
         ]
 
     def begin_chunk_attempt(
-        self, chunk_id: int, *, run_id: str, owner_id: str | None = None, now: datetime | None = None
+        self, chunk_id: int, *, run_id: str, owner_id: str, now: datetime | None = None
     ) -> tuple[ChunkInfo, int]:
         self._ensure_writable()
-        if owner_id:
-            self._assert_lease_owner(owner_id)
+        self._assert_lease_owner(owner_id)
         now_text = _iso(now)
         with self._lock:
             self.connection.execute("BEGIN IMMEDIATE")
             try:
-                if owner_id:
-                    self._assert_lease_owner(owner_id)
+                self._assert_lease_owner(owner_id)
                 row = self.connection.execute(
                     "SELECT chunk_id,delivery_id,sequence,payload,payload_hash,state,attempt_count,telegram_message_id,next_attempt_at FROM outbox_chunks WHERE chunk_id=?",
                     (chunk_id,),
@@ -787,23 +785,21 @@ class StateStore:
         outcome: str,
         *,
         run_id: str,
-        owner_id: str | None = None,
+        owner_id: str,
         error_class: str = "",
         error_text: str = "",
         telegram_message_id: str = "",
         next_attempt_at: datetime | None = None,
     ) -> DeliveryInfo:
         self._ensure_writable()
-        if owner_id:
-            self._assert_lease_owner(owner_id)
+        self._assert_lease_owner(owner_id)
         if outcome not in {"accepted", "rejected_retryable", "rejected_terminal", "ambiguous"}:
             raise ValueError("unsupported chunk outcome")
         now = _iso()
         with self._lock:
             self.connection.execute("BEGIN IMMEDIATE")
             try:
-                if owner_id:
-                    self._assert_lease_owner(owner_id)
+                self._assert_lease_owner(owner_id)
                 row = self.connection.execute(
                     "SELECT delivery_id,sequence,attempt_count,state FROM outbox_chunks WHERE chunk_id=?", (chunk_id,)
                 ).fetchone()
@@ -971,8 +967,9 @@ class StateStore:
             raise RetryNotDue("delivery retry is not due")
         return self.delivery(delivery_id)  # type: ignore[return-value]
 
-    def resolve_chunk(self, chunk_id: int, resolution: str, *, reason: str, operator: str) -> DeliveryInfo:
+    def resolve_chunk(self, chunk_id: int, resolution: str, *, owner_id: str, reason: str, operator: str) -> DeliveryInfo:
         self._ensure_writable()
+        self._assert_lease_owner(owner_id)
         if resolution not in {"sent", "retry"}:
             raise ValueError("resolution must be sent or retry")
         reason = _sanitize_error(reason, 500)
@@ -981,6 +978,7 @@ class StateStore:
         with self._lock:
             self.connection.execute("BEGIN IMMEDIATE")
             try:
+                self._assert_lease_owner(owner_id)
                 row = self.connection.execute("SELECT delivery_id,state FROM outbox_chunks WHERE chunk_id=?", (chunk_id,)).fetchone()
                 if not row or row[1] != "ambiguous":
                     raise InvalidTransition("only an ambiguous chunk can be resolved")
@@ -1048,6 +1046,7 @@ class StateStore:
             "lease": self.lease_info(),
             "scheduler_lease": self.lease_info("scheduler"),
             "active_delivery": active.__dict__ if active and hasattr(active, "__dict__") else self._delivery_dict(active),
+            "latest_delivery": self._delivery_dict(self._latest_delivery()),
             "unresolved_ambiguity_count": int(unresolved),
             "last_attempt_at": last_attempt,
             "last_success_at": last_success,
@@ -1077,6 +1076,12 @@ class StateStore:
     def _latest_active(self) -> DeliveryInfo | None:
         row = self.connection.execute(
             "SELECT delivery_id,delivery_date,generation,kind,state,run_id,config_hash,target_snapshot,next_attempt_at,terminal_error FROM deliveries WHERE state NOT IN ('completed','completed_empty','failed_terminal') ORDER BY delivery_id DESC LIMIT 1"
+        ).fetchone()
+        return self._delivery(row)
+
+    def _latest_delivery(self) -> DeliveryInfo | None:
+        row = self.connection.execute(
+            "SELECT delivery_id,delivery_date,generation,kind,state,run_id,config_hash,target_snapshot,next_attempt_at,terminal_error FROM deliveries ORDER BY delivery_id DESC LIMIT 1"
         ).fetchone()
         return self._delivery(row)
 

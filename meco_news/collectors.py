@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
 from email.utils import parsedate_to_datetime
 import html
 import json
 import logging
+import multiprocessing as mp
 import re
-import threading
 import time
 from typing import Any
 from collections.abc import Callable, Iterator, Mapping
@@ -222,6 +221,17 @@ def _entry_values(entry: ET.Element, limits: CollectionLimits) -> tuple[str, str
     return title, link, source, source_url, summary, published
 
 
+def _entry_has_invalid_scalar(entry: ET.Element) -> bool:
+    for node in entry.iter():
+        if node.text and _is_invalid_scalar(node.text):
+            return True
+        if node.tail and _is_invalid_scalar(node.tail):
+            return True
+        if any(_is_invalid_scalar(value) for value in node.attrib.values()):
+            return True
+    return False
+
+
 def _parse_xml_once(
     payload: bytes,
     feed_name: str,
@@ -272,6 +282,11 @@ def _parse_xml_once(
                     entries_seen += 1
                     if entries_seen > limits.entries_per_source:
                         raise SourceDataError("entry_limit")
+                    if _entry_has_invalid_scalar(element):
+                        quarantine.append("invalid_unicode_scalar")
+                        element.clear()
+                        depth -= 1
+                        continue
                     title, link, source, source_url, summary, published_text = _entry_values(element, limits)
                     if not title:
                         quarantine.append("missing_title")
@@ -553,30 +568,68 @@ def _job_host(function: Callable[..., SourceResult], args: tuple[Any, ...], sour
         return source_id.casefold()
 
 
-def _run_source_job(
-    source_id: str,
-    source_name: str,
-    function: Callable[..., SourceResult],
-    args: tuple[Any, ...],
-    kwargs: dict[str, Any],
-    semaphore: threading.BoundedSemaphore,
-    wait_seconds: int,
-) -> SourceResult:
-    started = time.monotonic()
-    if not semaphore.acquire(timeout=max(1, wait_seconds)):
-        return SourceResult(
-            source_id=source_id,
-            source_name=source_name,
-            outcome="failed",
-            duration_ms=int((time.monotonic() - started) * 1000),
-            reason_code="source_deadline_exceeded",
-            error_class="TimeoutError",
-            error="source concurrency budget exceeded",
-        )
+def _source_process_entry(connection: Any, function: Callable[..., SourceResult], args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+    """Run one source in an independently terminable process.
+
+    The parent owns the deadline and the process lifecycle.  Only a bounded,
+    typed result crosses the pipe; exception text is never used as a protocol.
+    """
+
     try:
-        return function(*args, **kwargs)
+        result = function(*args, **kwargs)
+        if not isinstance(result, SourceResult):
+            raise TypeError("source worker returned an invalid result")
+        connection.send(("result", result))
+    except MemoryError:
+        try:
+            connection.send(("memory_error",))
+        except (BrokenPipeError, EOFError, OSError):
+            pass
+    except BaseException as exc:
+        reason = str(getattr(exc, "reason_code", "source_exception"))[:80] or "source_exception"
+        try:
+            connection.send(("exception", type(exc).__name__[:80], reason))
+        except (BrokenPipeError, EOFError, OSError):
+            pass
     finally:
-        semaphore.release()
+        connection.close()
+
+
+def _deadline_result(source_id: str, source_name: str) -> SourceResult:
+    return SourceResult(
+        source_id=source_id,
+        source_name=source_name,
+        outcome="failed",
+        reason_code="source_deadline_exceeded",
+        error_class="TimeoutError",
+        error="source deadline exceeded",
+    )
+
+
+def _worker_failure(source_id: str, source_name: str, error_class: str, reason_code: str) -> SourceResult:
+    stable_reason = reason_code[:80] or "source_exception"
+    stable_class = error_class[:80] or "RuntimeError"
+    return SourceResult(
+        source_id=source_id,
+        source_name=source_name,
+        outcome="failed",
+        reason_code=stable_reason,
+        error_class=stable_class,
+        error=f"{stable_class}: {stable_reason}",
+    )
+
+
+def _terminate_worker(process: Any) -> None:
+    """Terminate and join a worker; never leave a child detached."""
+
+    if process.is_alive():
+        process.terminate()
+    process.join(timeout=2)
+    if process.is_alive() and hasattr(process, "kill"):
+        process.kill()
+        process.join(timeout=2)
+    if process.is_alive():
+        raise RuntimeError("source worker could not be reaped")
 
 
 def collect_all(config: Mapping[str, Any] | AppConfig) -> CollectionResult:
@@ -622,55 +675,118 @@ def collect_all(config: Mapping[str, Any] | AppConfig) -> CollectionResult:
     if not jobs:
         return CollectionResult([], [], started_at, 0)
 
-    # C4.4: use killable process pool — thread cannot be terminated, process can be killed on deadline
-    executor = ProcessPoolExecutor(max_workers=min(10, max(1, len(jobs))))
-    futures: dict[Future[SourceResult], tuple[str, str]] = {}
-    host_semaphores: dict[str, threading.BoundedSemaphore] = {}
-    for source_id, source_name, function, args, kwargs in jobs:
-        host = _job_host(function, args, source_id)
-        semaphore = host_semaphores.setdefault(host, threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS_PER_HOST))
-        futures[
-            executor.submit(_run_source_job, source_id, source_name, function, args, kwargs, semaphore, limits.source_deadline_seconds)
-        ] = (
-            source_id,
-            source_name,
-        )
-    pending = set(futures)
+    # A thread cannot be terminated if a source ignores its socket timeout.
+    # Spawn one process per active source instead.  Host concurrency is owned
+    # by this parent scheduler, so no lock/semaphore is sent across the spawn
+    # boundary and all children remain pickle-safe on Windows.
+    context = mp.get_context("spawn")
+    max_workers = min(10, max(1, len(jobs)))
+    pending_jobs = list(jobs)
+    active: dict[Any, tuple[Any, str, str, str]] = {}
+    host_active: dict[str, int] = {}
     results_by_id: dict[str, SourceResult] = {}
     deadline = time.monotonic() + limits.source_deadline_seconds + 2
+    timed_out = False
+
+    def cleanup_active() -> None:
+        cleanup_error: RuntimeError | None = None
+        for process, (connection, _source_id, _source_name, _host) in list(active.items()):
+            try:
+                connection.close()
+                _terminate_worker(process)
+            except RuntimeError as exc:
+                cleanup_error = cleanup_error or exc
+            finally:
+                active.pop(process, None)
+        if cleanup_error:
+            raise cleanup_error
+
     try:
-        while pending:
-            remaining = max(0.0, deadline - time.monotonic())
-            if remaining <= 0:
-                for future in pending:
-                    future.cancel()
-                for future in pending:
-                    source_id, source_name = futures[future]
-                    results_by_id[source_id] = SourceResult(
+        while pending_jobs or active:
+            now = time.monotonic()
+            if now >= deadline:
+                timed_out = True
+                break
+
+            # Start as many eligible jobs as the global and per-host budgets allow.
+            started_one = True
+            while pending_jobs and len(active) < max_workers and started_one and time.monotonic() < deadline:
+                started_one = False
+                for index, (source_id, source_name, function, args, kwargs) in enumerate(pending_jobs):
+                    host = _job_host(function, args, source_id)
+                    if host_active.get(host, 0) >= MAX_CONCURRENT_REQUESTS_PER_HOST:
+                        continue
+                    pending_jobs.pop(index)
+                    parent, child = context.Pipe(duplex=False)
+                    process = context.Process(
+                        target=_source_process_entry,
+                        args=(child, function, args, kwargs),
+                        name=f"meco-source-{source_id}",
+                    )
+                    try:
+                        process.start()
+                    except BaseException as exc:
+                        parent.close()
+                        child.close()
+                        results_by_id[source_id] = _worker_failure(source_id, source_name, type(exc).__name__, "process_start_failed")
+                    else:
+                        child.close()
+                        active[process] = (parent, source_id, source_name, host)
+                        host_active[host] = host_active.get(host, 0) + 1
+                    started_one = True
+                    break
+
+            progressed = False
+            for process, (connection, source_id, source_name, host) in list(active.items()):
+                payload: tuple[Any, ...] | None = None
+                if connection.poll():
+                    try:
+                        candidate = connection.recv()
+                        payload = candidate if isinstance(candidate, tuple) else ("invalid",)
+                    except (EOFError, OSError):
+                        payload = ("worker_exit",)
+                if payload is None and process.is_alive():
+                    continue
+                progressed = True
+                connection.close()
+                process.join(timeout=0.2)
+                if process.is_alive():
+                    _terminate_worker(process)
+                active.pop(process, None)
+                host_active[host] -= 1
+                if payload is None or payload[0] in {"worker_exit", "invalid"}:
+                    results_by_id[source_id] = _worker_failure(source_id, source_name, "WorkerProcessError", "worker_no_result")
+                elif payload[0] == "memory_error":
+                    raise MemoryError("source worker exhausted memory")
+                elif payload[0] == "result" and len(payload) == 2 and isinstance(payload[1], SourceResult):
+                    results_by_id[source_id] = payload[1]
+                elif payload[0] == "exception":
+                    results_by_id[source_id] = _worker_failure(
                         source_id,
                         source_name,
-                        "failed",
-                        reason_code="source_deadline_exceeded",
-                        error_class="TimeoutError",
-                        error="source deadline exceeded",
+                        str(payload[1]) if len(payload) > 1 else "WorkerProcessError",
+                        str(payload[2]) if len(payload) > 2 else "source_exception",
                     )
-                break
-            done, pending = wait(pending, timeout=min(1.0, remaining), return_when=FIRST_COMPLETED)
-            for future in done:
-                source_id, source_name = futures[future]
-                try:
-                    result = future.result()
-                    results_by_id[source_id] = result
-                except MemoryError:
-                    raise
-                except Exception as exc:
-                    results_by_id[source_id] = _failed_source_result(source_id, source_name, time.monotonic(), exc)
+                else:
+                    results_by_id[source_id] = _worker_failure(source_id, source_name, "WorkerProcessError", "worker_invalid_result")
+
+            if not progressed:
+                time.sleep(min(0.02, max(0.0, deadline - time.monotonic())))
     finally:
-        # C4.4: process workers are killable on deadline — no detached threads remain
-        executor.shutdown(wait=True, cancel_futures=True)
+        if timed_out:
+            for process, (connection, source_id, source_name, host) in list(active.items()):
+                connection.close()
+                _terminate_worker(process)
+                host_active[host] -= 1
+                active.pop(process, None)
+                results_by_id[source_id] = _deadline_result(source_id, source_name)
+            for source_id, source_name, _function, _args, _kwargs in pending_jobs:
+                results_by_id[source_id] = _deadline_result(source_id, source_name)
+        elif active:
+            cleanup_active()
 
     source_results = [
-        results_by_id[source_id] for source_id, _ in sorted(futures.values(), key=lambda pair: pair[0]) if source_id in results_by_id
+        results_by_id[source_id] for source_id, _name, _function, _args, _kwargs in sorted(jobs, key=lambda job: job[0]) if source_id in results_by_id
     ]
     items = [item for result in source_results for item in result.items]
     return CollectionResult(items, source_results, started_at, int((time.monotonic() - started) * 1000))

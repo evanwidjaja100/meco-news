@@ -30,9 +30,8 @@ class TestF014LoneSurrogateAbortsBatch(unittest.TestCase):
             items, quarantine = parse_feed_result(rss, "Test", "rss", source_id="test")
         except Exception as exc:
             self.fail(f"BUG: surrogate caused whole feed to abort: {exc}")
-        # If both items parsed, surrogate was not quarantined — bug
-        if len(items) == 2:
-            self.fail("BUG REPRODUCED: surrogate item was not quarantined — should be invalid_unicode_scalar")
+        self.assertEqual([item.title for item in items], [good_title])
+        self.assertIn("invalid_unicode_scalar", quarantine)
         # Red test expects quarantine of bad and preservation of good
         self.assertEqual(len(items), 1, "healthy sibling must survive")
         self.assertEqual(items[0].title, good_title)
@@ -108,17 +107,18 @@ class TestF016MulticastAccepted(unittest.TestCase):
 
 
 class TestF017DeadlineNotReapable(unittest.TestCase):
-    """F-017: source deadlines must use killable spawned process, not detached executor thread."""
+    """F-017: source deadlines must be bounded and reapable (C4.4)."""
 
     def test_executor_is_detached_not_killable(self) -> None:
         import inspect
         from meco_news import collectors
 
         src = inspect.getsource(collectors.collect_all)
-        # Current code uses ThreadPoolExecutor and comments 'detached here' collectors.py:635
-        if "ThreadPoolExecutor" in src and "detached" in src.lower():
-            self.fail("BUG REPRODUCED: collect_all uses ThreadPoolExecutor detached without kill — must be spawned process per C4.4")
-        self.assertIn("Process", src, "must use process isolation")
+        # The deadline must be backed by spawn-isolated, parent-terminable workers.
+        self.assertIn("source_deadline", src, "must have deadline handling")
+        self.assertIn('get_context("spawn")', src, "must use spawned process isolation")
+        self.assertIn("_terminate_worker", src, "must terminate and join deadline-exceeded workers")
+        self.assertNotIn("ThreadPoolExecutor", src, "threads cannot be hard-terminated at a source deadline")
 
 
 class TestF018SourceDependentIdentity(unittest.TestCase):

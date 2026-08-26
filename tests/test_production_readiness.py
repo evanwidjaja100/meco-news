@@ -97,12 +97,12 @@ class LeaseAndOutboxTests(unittest.TestCase):
                 self.assertFalse(second.acquire_lease("delivery", "two", 180).acquired)
                 delivery = first.create_delivery("2026-08-24", config_hash="hash")
                 first.prepare_delivery(
-                    delivery.delivery_id, [self._item()], ["<b>hello</b>"], item_chunk_indexes={self._item().fingerprint: 0}
+                    delivery.delivery_id, [self._item()], ["<b>hello</b>"], owner_id="one", item_chunk_indexes={self._item().fingerprint: 0}
                 )
                 chunk = first.due_chunks(delivery.delivery_id)[0]
-                _, attempt = first.begin_chunk_attempt(chunk.chunk_id, run_id="run")
+                _, attempt = first.begin_chunk_attempt(chunk.chunk_id, run_id="run", owner_id="one")
                 self.assertEqual(attempt, 1)
-                completed = first.finish_chunk(chunk.chunk_id, "accepted", run_id="run", telegram_message_id="42")
+                completed = first.finish_chunk(chunk.chunk_id, "accepted", run_id="run", owner_id="one", telegram_message_id="42")
                 self.assertEqual(completed.state, "completed")
                 self.assertEqual(first.due_chunks(delivery.delivery_id), [])
                 self.assertEqual(first.sent_fingerprints([self._item()]), {self._item().fingerprint})
@@ -115,9 +115,9 @@ class LeaseAndOutboxTests(unittest.TestCase):
                 self.assertTrue(store.acquire_lease("delivery", "owner", 180).acquired)
                 delivery = store.create_delivery("2026-08-24", config_hash="hash")
                 item = self._item()
-                store.prepare_delivery(delivery.delivery_id, [item], ["<b>hello</b>"], item_chunk_indexes={item.fingerprint: 0})
+                store.prepare_delivery(delivery.delivery_id, [item], ["<b>hello</b>"], owner_id="owner", item_chunk_indexes={item.fingerprint: 0})
                 chunk = store.due_chunks(delivery.delivery_id)[0]
-                store.begin_chunk_attempt(chunk.chunk_id, run_id="run")
+                store.begin_chunk_attempt(chunk.chunk_id, run_id="run", owner_id="owner")
                 snapshot = store.status_snapshot()
                 self.assertEqual(snapshot["scheduler_lease"]["owner_id"], "daemon")
                 self.assertEqual(snapshot["active_chunk"]["state"], "in_flight")
@@ -129,15 +129,15 @@ class LeaseAndOutboxTests(unittest.TestCase):
                 self.assertTrue(store.acquire_lease("delivery", "owner", 180).acquired)
                 item = self._item()
                 delivery = store.create_delivery("2026-08-24", config_hash="hash")
-                store.prepare_delivery(delivery.delivery_id, [item], ["<b>hello</b>"], item_chunk_indexes={item.fingerprint: 0})
+                store.prepare_delivery(delivery.delivery_id, [item], ["<b>hello</b>"], owner_id="owner", item_chunk_indexes={item.fingerprint: 0})
                 chunk = store.due_chunks(delivery.delivery_id)[0]
-                store.begin_chunk_attempt(chunk.chunk_id, run_id="run")
+                store.begin_chunk_attempt(chunk.chunk_id, run_id="run", owner_id="owner")
                 current = store.finish_chunk(
-                    chunk.chunk_id, "ambiguous", run_id="run", error_class="telegram_ambiguous", error_text="unknown"
+                    chunk.chunk_id, "ambiguous", run_id="run", owner_id="owner", error_class="telegram_ambiguous", error_text="unknown"
                 )
                 self.assertEqual(current.state, "needs_attention")
                 self.assertEqual(store.due_chunks(delivery.delivery_id), [])
-                resolved = store.resolve_chunk(chunk.chunk_id, "retry", reason="confirmed not delivered", operator="tester")
+                resolved = store.resolve_chunk(chunk.chunk_id, "retry", owner_id="owner", reason="confirmed not delivered", operator="tester")
                 self.assertEqual(resolved.state, "sending")
                 self.assertEqual(len(store.due_chunks(delivery.delivery_id)), 1)
 

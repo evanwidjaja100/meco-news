@@ -12,7 +12,7 @@ import tempfile
 from typing import Any
 
 from . import __version__
-from .storage import StateStore
+from .storage import StateError, StateStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +89,21 @@ def restore_backup(
             raise ValueError("backup schema is not supported")
         if metadata.get("schema_version") not in {None, store.schema_version}:
             raise ValueError("backup schema version does not match its manifest")
+    if target.exists():
+        # Replacing a live target would discard the scheduler's durable view
+        # while it may still be sending.  Require the operator to stop it or
+        # wait for the lease to expire before an atomic restore.
+        with StateStore(target, readonly=True) as current:
+            for scope in ("delivery", "scheduler"):
+                lease = current.lease_info(scope)
+                if not lease:
+                    continue
+                try:
+                    active = datetime.fromisoformat(lease["expires_at"]).astimezone(UTC) > datetime.now(UTC)
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise StateError("target lease metadata is invalid; restore refused") from exc
+                if active:
+                    raise StateError(f"cannot restore over active {scope} lease")
     target.parent.mkdir(parents=True, exist_ok=True)
     previous_mode = target.stat().st_mode & 0o777 if target.exists() else None
     fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".restore", dir=target.parent)

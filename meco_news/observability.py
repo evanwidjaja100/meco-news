@@ -8,6 +8,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 import re
+import sys
 from typing import Any
 from collections.abc import Mapping
 from urllib.parse import urlsplit
@@ -19,16 +20,21 @@ LOGGER = logging.getLogger("meco_news.events")
 _TOKEN_RE = re.compile(r"(?i)(bot\d{5,}:[a-z0-9_-]{20,})")
 _AUTH_RE = re.compile(r"(?i)(authorization|cookie|token|password|secret)\s*[:=]\s*[^\s,;]+")
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u2028\u2029]")
+_BIDI_RE = re.compile(r"[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+_SENSITIVE_KEYS = ("token", "secret", "password", "authorization", "cookie", "api_key", "apikey")
 
 
-def redact(value: Any, *, limit: int = 2_000) -> Any:
+def redact(value: Any, *, limit: int = 2_000, _key: str = "") -> Any:
+    if any(marker in _key.casefold() for marker in _SENSITIVE_KEYS):
+        return "<redacted>"
     if isinstance(value, Mapping):
-        return {str(key): redact(item, limit=limit) for key, item in value.items()}
+        return {str(key): redact(item, limit=limit, _key=str(key)) for key, item in value.items()}
     if isinstance(value, list | tuple | set):
         return [redact(item, limit=limit) for item in list(value)[:100]]
     if not isinstance(value, str):
         return value
     text = _CONTROL_RE.sub(" ", value)
+    text = _BIDI_RE.sub(" ", text)
     text = _TOKEN_RE.sub("<redacted-token>", text)
     text = _AUTH_RE.sub(lambda match: f"{match.group(1)}=<redacted>", text)
     if text.startswith(("http://", "https://")):
@@ -64,7 +70,7 @@ def configure_logging(*, level: str = "INFO", file_path: str | None = None) -> N
         root.removeHandler(handler)
         handler.close()
     formatter = JsonEventFormatter()
-    stdout_handler = logging.StreamHandler()
+    stdout_handler = logging.StreamHandler(sys.stdout)
     stdout_handler.setFormatter(formatter)
     root.addHandler(stdout_handler)
     if file_path:

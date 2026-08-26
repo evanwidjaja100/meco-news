@@ -25,6 +25,13 @@ PREFLIGHT_STATE = 4
 PREFLIGHT_SCHEMA = 5
 PREFLIGHT_LEASE = 6
 PREFLIGHT_ONLINE = 7
+MIN_FREE_BYTES = 1 * 1024 * 1024 * 1024
+
+
+def _disk_sufficient(free_bytes: int, total_bytes: int) -> bool:
+    """Require both the absolute and proportional state-disk floor."""
+
+    return free_bytes >= MIN_FREE_BYTES and free_bytes * 10 >= total_bytes
 
 
 def looks_placeholder(value: str) -> bool:
@@ -65,16 +72,20 @@ def run_preflight(config: AppConfig, *, online: bool = False, state_path: str | 
 
     parent = path.parent.resolve()
     disk_ok = parent.exists() and os.access(parent, os.W_OK)
+    total_bytes = 0
     try:
         usage = shutil.disk_usage(parent if parent.exists() else Path.cwd())
         free_bytes = int(usage.free)
+        total_bytes = int(usage.total)
     except OSError:
         free_bytes = 0
-    state_ok = bool(disk_ok and free_bytes >= 1 * 1024 * 1024)
+    state_ok = bool(disk_ok and _disk_sufficient(free_bytes, total_bytes))
     report["checks"]["state_filesystem"] = {
         "ok": state_ok,
         "directory": str(parent),
         "free_bytes": free_bytes,
+        "minimum_free_bytes": MIN_FREE_BYTES,
+        "minimum_free_ratio": 0.10,
         "database_exists": path.exists(),
     }
     if not state_ok:
@@ -202,20 +213,22 @@ def healthcheck(
         report["reasons"].append("state_unwritable")
     else:
         try:
-            if shutil.disk_usage(parent).free < 1 * 1024 * 1024:
+            usage = shutil.disk_usage(parent)
+            if not _disk_sufficient(int(usage.free), int(usage.total)):
                 report["healthy"] = False
                 report["reasons"].append("state_disk_low")
         except OSError:
             report["healthy"] = False
             report["reasons"].append("state_disk_unavailable")
     active = status.get("active_delivery") or {}
+    latest = status.get("latest_delivery") or {}
     # C3.5: distinguish completed_empty (healthy empty) vs all_sources_failed retry exhaustion (unhealthy)
     # completed_empty is healthy (coverage notice), retry_wait with all_sources_failed is unhealthy after max attempts
-    if active.get("state") in {"needs_attention", "failed_terminal"} or status.get("unresolved_ambiguity_count", 0):
+    if active.get("state") in {"needs_attention", "failed_terminal"} or latest.get("state") in {"needs_attention", "failed_terminal"} or status.get("unresolved_ambiguity_count", 0):
         report["healthy"] = False
         report["reasons"].append("unresolved_delivery_failure")
     # Explicit check for completed_empty as healthy (distinct from retry_wait)
-    if status.get("active_delivery", {}).get("state") == "completed_empty":
+    if active.get("state") == "completed_empty":
         # completed_empty is healthy — no action, but explicitly handled for C3.5 test
         pass
     last_success = status.get("last_success_at")
@@ -229,7 +242,9 @@ def healthcheck(
             report["healthy"] = False
             report["reasons"].append("invalid_last_success")
     # C3.5: all_sources_failed retry exhaustion is unhealthy (distinct from completed_empty)
-    if status.get("active_delivery", {}).get("state") == "retry_wait" and "all_sources_failed" in str(status.get("active_delivery", {}).get("terminal_error", "")):
-        # This check ensures health distinguishes all_sources_failed exhaustion
-        pass
+    if active.get("state") == "retry_wait" and "all_sources_failed" in str(active.get("terminal_error", "")):
+        # Exhausted source retries are unsafe even though no Telegram chunk is
+        # currently ambiguous; they must not look like a healthy idle retry.
+        report["healthy"] = False
+        report["reasons"].append("all_sources_failed_retry_exhausted")
     return bool(report["healthy"]), report

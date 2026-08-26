@@ -100,10 +100,10 @@ class TestF004HealthFalseGreen(unittest.TestCase):
                     score=10,
                     topic="lpg_energy",
                 )
-                store.prepare_delivery(delv.delivery_id, [item], ["<b>hello</b>"], item_chunk_indexes={item.fingerprint: 0})
+                store.prepare_delivery(delv.delivery_id, [item], ["<b>hello</b>"], owner_id="owner", item_chunk_indexes={item.fingerprint: 0})
                 chunk = store.due_chunks(delv.delivery_id)[0]
-                store.begin_chunk_attempt(chunk.chunk_id, run_id="test")
-                store.finish_chunk(chunk.chunk_id, "ambiguous", run_id="test", error_class="telegram_ambiguous", error_text="unknown")
+                store.begin_chunk_attempt(chunk.chunk_id, run_id="test", owner_id="owner")
+                store.finish_chunk(chunk.chunk_id, "ambiguous", run_id="test", owner_id="owner", error_class="telegram_ambiguous", error_text="unknown")
             healthy, report = healthcheck(config, state_path=path)
             if healthy:
                 self.fail(f"BUG REPRODUCED: health is healthy despite needs_attention — must be unhealthy (F-004). report={report}")
@@ -116,7 +116,7 @@ class TestF004HealthFalseGreen(unittest.TestCase):
             with StateStore(path) as store:
                 store.acquire_lease("delivery", "owner", 180)
                 d1 = store.create_delivery("2026-08-24", config_hash="h")
-                store.prepare_delivery(d1.delivery_id, [], ["<b>a</b>"])
+                store.prepare_delivery(d1.delivery_id, [], ["<b>a</b>"], owner_id="owner")
                 # Complete it
                 s = store
                 # Manually complete for fixture

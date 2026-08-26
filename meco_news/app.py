@@ -353,6 +353,7 @@ def run_once(
                     active.delivery_id,
                     built.included_items,
                     built.messages,
+                    owner_id=owner_id,
                     item_chunk_indexes=built.item_chunk_indexes,
                     target_snapshot=snapshot,
                 )
@@ -846,7 +847,21 @@ def main(argv: list[str] | None = None) -> int:
         try:
             assert args.resolution is not None and args.reason is not None and args.operator is not None
             with StateStore(os.getenv("STATE_DB", "data/meco_news.db")) as store:
-                delivery = store.resolve_chunk(args.resolve_chunk, args.resolution, reason=args.reason, operator=args.operator)
+                owner_id = str(uuid.uuid4())
+                lease = store.acquire_lease(LEASE_SCOPE, owner_id, config.lease_ttl_seconds)
+                if not lease.acquired:
+                    emit_event("resolution_failed", level=logging.ERROR, outcome="already_running")
+                    return 1
+                try:
+                    delivery = store.resolve_chunk(
+                        args.resolve_chunk,
+                        args.resolution,
+                        owner_id=owner_id,
+                        reason=args.reason,
+                        operator=args.operator,
+                    )
+                finally:
+                    store.release_lease(LEASE_SCOPE, owner_id)
             print(json.dumps({"delivery_id": delivery.delivery_id, "state": delivery.state}, sort_keys=True))
             return 0
         except Exception as exc:
