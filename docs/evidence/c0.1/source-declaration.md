@@ -36,6 +36,6 @@ This directory is treated as the **authoritative imported snapshot** for the pro
 
 ## Signatures
 
-- Coordinator: ______________________ Date: __________
-- Owner: ______________________ Date: __________ (required before CG0)
-- Release approver: ______________________ Date: __________
+- Coordinator: Evan Widjaja Date: 2026-09-05
+- Owner: Evan Widjaja Date: 2026-09-05 (required before CG0)
+- Release approver: Evan Widjaja Date: 2026-09-05
