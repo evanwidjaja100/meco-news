@@ -1,38 +1,51 @@
 {
-    "branch":  "main",
-    "status":  "protected-public-remote-solo-exception",
-    "remote":  "https://github.com/evanwidjaja100/meco-news",
-    "visibility":  "PUBLIC",
-    "default_branch":  "main",
-    "protection_exported":  "2026-09-05",
-    "protection":  {
-                       "require_code_owner_review":  true,
-                       "dismiss_stale_reviews":  true,
-                       "enforce_admins":  true,
-                       "allow_force_push":  false,
-                       "allow_deletion":  false,
-                       "required_status_checks":  [
-                                                      "unit",
-                                                      "quality",
-                                                      "package",
-                                                      "container"
-                                                  ],
-                       "required_reviews":  0
-                   },
-    "raw_api_keys":  [
-                         "allow_deletions",
-                         "allow_force_pushes",
-                         "allow_fork_syncing",
-                         "block_creations",
-                         "enforce_admins",
-                         "lock_branch",
-                         "required_conversation_resolution",
-                         "required_linear_history",
-                         "required_pull_request_reviews",
-                         "required_signatures",
-                         "required_status_checks",
-                         "url"
-                     ],
-    "note":  "Server-side protection enforced and verified via API GET. Evidence: gh api branches/main/protection.",
-    "solo_exception":  "Owner 2026-09-05: solo maintainer, 0 required reviews; PR plus 4 status checks still required, force-push and deletion blocked, admins enforced. Revisit when second reviewer joins."
+  "branch": "main",
+  "status": "protected-public-remote-solo-exception",
+  "remote": "https://github.com/evanwidjaja100/meco-news",
+  "visibility": "PUBLIC",
+  "default_branch": "main",
+  "protection_exported": "2026-09-05",
+  "protection": {
+    "require_code_owner_review": false,
+    "dismiss_stale_reviews": false,
+    "enforce_admins": true,
+    "allow_force_push": false,
+    "allow_deletion": false,
+    "required_status_checks": [
+      "quality",
+      "package",
+      "container",
+      "unit-ubuntu-latest-py3.14",
+      "unit-windows-latest-py3.14"
+    ],
+    "required_reviews": 0,
+    "strict": false
+  },
+  "raw_api_keys": [
+    "allow_deletions",
+    "allow_force_pushes",
+    "allow_fork_syncing",
+    "block_creations",
+    "enforce_admins",
+    "lock_branch",
+    "required_conversation_resolution",
+    "required_linear_history",
+    "required_pull_request_reviews",
+    "required_signatures",
+    "required_status_checks",
+    "url"
+  ],
+  "note": "Server-side protection enforced and verified via API GET. Evidence: gh api branches/main/protection.",
+  "solo_exception": "Owner 2026-09-05: solo maintainer, 0 required reviews; PR plus 5 status checks still required, force-push and deletion blocked, admins enforced. Revisit when second reviewer joins.",
+  "cg0_close": {
+    "pr": 1,
+    "merge_commit": "ed1e8ff",
+    "merged_at": "2026-09-05T14:24:04Z",
+    "ci_matrix": [
+      "3.14"
+    ],
+    "rule_correction": "required check 'unit' renamed to matrix-real names unit-ubuntu-latest-py3.14 + unit-windows-latest-py3.14 (was blocking merge despite green CI)",
+    "unit_cache_fix": "removed cache:pip from unit job (no deps installed; post-step failed)",
+    "gates": "230 tests OK, mypy clean, ruff check+format clean, sentinel passed"
+  }
 }
