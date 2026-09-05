@@ -20,6 +20,7 @@ from .config import AppConfig, CollectionLimits, NetworkPolicy
 from .models import NewsItem
 from .network import NetworkError, fetch_bytes
 from .urls import URLPolicyError, validate_url
+import contextlib
 
 
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
@@ -269,7 +270,13 @@ def _parse_xml_once(
     try:
         for start in range(0, len(payload), 64 * 1024):
             parser.feed(payload[start : start + 64 * 1024])
-            for event, element in parser.read_events():
+            for raw_event in parser.read_events():
+                if len(raw_event) != 2:
+                    continue
+                event = raw_event[0]
+                element = raw_event[1]
+                if not isinstance(element, ET.Element):
+                    continue
                 if event == "start":
                     depth += 1
                     nodes += 1
@@ -581,16 +588,12 @@ def _source_process_entry(connection: Any, function: Callable[..., SourceResult]
             raise TypeError("source worker returned an invalid result")
         connection.send(("result", result))
     except MemoryError:
-        try:
+        with contextlib.suppress(BrokenPipeError, EOFError, OSError):
             connection.send(("memory_error",))
-        except (BrokenPipeError, EOFError, OSError):
-            pass
     except BaseException as exc:
         reason = str(getattr(exc, "reason_code", "source_exception"))[:80] or "source_exception"
-        try:
+        with contextlib.suppress(BrokenPipeError, EOFError, OSError):
             connection.send(("exception", type(exc).__name__[:80], reason))
-        except (BrokenPipeError, EOFError, OSError):
-            pass
     finally:
         connection.close()
 
@@ -786,7 +789,9 @@ def collect_all(config: Mapping[str, Any] | AppConfig) -> CollectionResult:
             cleanup_active()
 
     source_results = [
-        results_by_id[source_id] for source_id, _name, _function, _args, _kwargs in sorted(jobs, key=lambda job: job[0]) if source_id in results_by_id
+        results_by_id[source_id]
+        for source_id, _name, _function, _args, _kwargs in sorted(jobs, key=lambda job: job[0])
+        if source_id in results_by_id
     ]
     items = [item for result in source_results for item in result.items]
     return CollectionResult(items, source_results, started_at, int((time.monotonic() - started) * 1000))

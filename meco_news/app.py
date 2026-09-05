@@ -215,14 +215,14 @@ def run_once(
                 top_candidates=top_candidates,
             )
             _print_dry_run(selected, len(collection.items), collection.issues, exclusions=exclusions, collection=collection)
-            return RunOutcome(0, "dry_run") if "RunOutcome" in globals() else 0
+            return RunOutcome(0, "dry_run")
         finally:
             if history:
                 history.close()
 
     if looks_placeholder(os.getenv("TELEGRAM_BOT_TOKEN", "")) or looks_placeholder(os.getenv("TELEGRAM_CHAT_ID", "")):
         emit_event("run_terminal", level=logging.ERROR, outcome="preflight_failed", error_class="TelegramSecretConfiguration")
-        return 3
+        return RunOutcome(3, "preflight_failed")
 
     owner_id = str(uuid.uuid4())
     run_id = str(uuid.uuid4())
@@ -234,7 +234,7 @@ def run_once(
             lease = store.acquire_lease(LEASE_SCOPE, owner_id, config.lease_ttl_seconds)
             if not lease.acquired:
                 emit_event("run_skipped", outcome="already_running", delivery_date=delivery_date, lease_owner=lease.owner_id)
-                return 0
+                return RunOutcome(0, "already_running")
             lease_acquired = True
 
             active = store.active_delivery(delivery_date) or store.active_delivery(None)
@@ -250,12 +250,12 @@ def run_once(
                 emit_event(
                     "run_terminal", run_id=run_id, delivery_date=delivery_date, outcome="needs_attention", error_class="active_generation"
                 )
-                return 1
+                return RunOutcome(1, "needs_attention")
             if active and active.state == "needs_attention":
                 emit_event(
                     "run_terminal", run_id=run_id, delivery_date=delivery_date, outcome="needs_attention", delivery_id=active.delivery_id
                 )
-                return 1
+                return RunOutcome(1, "needs_attention")
             if active and active.state == "retry_wait":
                 due = _parse_iso(active.next_attempt_at)
                 if due and due > datetime.now(UTC):
@@ -267,7 +267,7 @@ def run_once(
                         next_attempt_at=active.next_attempt_at,
                         delivery_id=active.delivery_id,
                     )
-                    return 1
+                    return RunOutcome(1, "retry_wait")
                 # A content retry resumes its frozen chunk. Only a collection
                 # retry (or a delivery with no outbox yet) reopens collection.
                 if active.kind == "collection_retry" or not store.due_chunks(active.delivery_id):
@@ -275,7 +275,7 @@ def run_once(
             if active is None:
                 if store.already_completed(delivery_date) and not force:
                     emit_event("run_skipped", run_id=run_id, delivery_date=delivery_date, outcome="already_completed")
-                    return 0
+                    return RunOutcome(0, "already_completed")
                 if force and store.status_snapshot().get("unresolved_ambiguity_count", 0):
                     emit_event(
                         "run_terminal",
@@ -284,7 +284,7 @@ def run_once(
                         outcome="needs_attention",
                         error_class="ambiguous_generation",
                     )
-                    return 1
+                    return RunOutcome(1, "needs_attention")
                 active = store.create_delivery(
                     delivery_date,
                     generation=(
@@ -317,6 +317,7 @@ def run_once(
                             reason_code="all_sources_failed",
                             retry_number=retry_number,
                         )
+                        return RunOutcome(1, "failed_terminal")
                     else:
                         next_attempt = datetime.now(UTC) + _retry_delay(config, retry_number)
                         store.set_collection_retry(active.delivery_id, next_attempt_at=next_attempt, error="all_sources_failed")
@@ -329,7 +330,7 @@ def run_once(
                             retry_number=retry_number,
                             next_attempt_at=next_attempt.isoformat(),
                         )
-                    return 1
+                        return RunOutcome(1, "retry_wait")
                 selected, exclusions, _, _ = _collect_rank_select(config, collection, store)
                 coverage_notice = ""
                 if not selected:
@@ -389,7 +390,7 @@ def run_once(
                     reason_code="target_snapshot_mismatch",
                     delivery_id=delivery_id,
                 )
-                return 1
+                return RunOutcome(1, "needs_attention")
             while True:
                 store.heartbeat_lease(LEASE_SCOPE, owner_id, config.lease_ttl_seconds)
                 chunks = store.due_chunks(delivery_id)
@@ -402,9 +403,9 @@ def run_once(
                         )
                         # Explicit completed_empty outcome for C3.5 test
                         _ = 'outcome="completed_empty"'
-                        return RunOutcome(0, current.state) if "RunOutcome" in globals() else 0
+                        return RunOutcome(0, current.state)
                     emit_event("run_terminal", run_id=run_id, delivery_date=delivery_date, outcome="retry_wait", delivery_id=delivery_id)
-                    return RunOutcome(1, "retry_wait") if "RunOutcome" in globals() else 1
+                    return RunOutcome(1, "retry_wait")
                 for chunk in chunks:
                     _, attempt_number = store.begin_chunk_attempt(chunk.chunk_id, run_id=run_id, owner_id=owner_id)
                     try:
@@ -429,7 +430,7 @@ def run_once(
                                 delivery_id=delivery_id,
                                 chunk_id=chunk.chunk_id,
                             )
-                            return 1
+                            return RunOutcome(1, "needs_attention")
                         if exc.outcome == "rejected_retryable" and retry_enabled and attempt_number < config.retry_policy.max_attempts:
                             next_attempt = datetime.now(UTC) + _retry_delay(config, attempt_number, retry_after=exc.retry_after)
                             store.finish_chunk(
@@ -451,7 +452,7 @@ def run_once(
                                 delivery_id=delivery_id,
                                 chunk_id=chunk.chunk_id,
                             )
-                            return 1
+                            return RunOutcome(1, "retry_wait")
                         store.finish_chunk(
                             chunk.chunk_id,
                             "rejected_terminal",
@@ -469,7 +470,7 @@ def run_once(
                             delivery_id=delivery_id,
                             chunk_id=chunk.chunk_id,
                         )
-                        return 1
+                        return RunOutcome(1, "failed_terminal")
                     except Exception as exc:
                         # Unknown failures after in-flight marking are treated
                         # conservatively as ambiguous; a confirmed chunk is
@@ -491,7 +492,7 @@ def run_once(
                             delivery_id=delivery_id,
                             chunk_id=chunk.chunk_id,
                         )
-                        return 1
+                        return RunOutcome(1, "needs_attention")
                     store.finish_chunk(chunk.chunk_id, "accepted", run_id=run_id, owner_id=owner_id, telegram_message_id=message_id)
         except Exception as exc:
             current = store.delivery(delivery_id) if delivery_id is not None else None
@@ -506,7 +507,7 @@ def run_once(
                 outcome="failed_terminal",
                 error_class=type(exc).__name__,
             )
-            return 1
+            return RunOutcome(1, "failed_terminal")
         finally:
             if lease_acquired:
                 with suppress(Exception):

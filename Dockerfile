@@ -1,5 +1,5 @@
-# Verified multi-architecture manifest digest (amd64/arm64 included).
-ARG PYTHON_IMAGE=docker.io/library/python:3.13.7-slim-bookworm@sha256:adafcc17694d715c905b4c7bebd96907a1fd5cf183395f0ebc4d3428bd22d92d
+# NOTE: base image tag tracks python:3.14-slim-bookworm; production promotion must pin by immutable digest (see README).
+ARG PYTHON_IMAGE=docker.io/library/python:3.14-slim-bookworm
 FROM ${PYTHON_IMAGE} AS builder
 
 WORKDIR /build
@@ -17,8 +17,8 @@ RUN python -m pip install --no-cache-dir --no-index --no-deps /tmp/meco_news-*.w
     && useradd --create-home --uid 10001 --shell /usr/sbin/nologin meco \
     && mkdir -p /app/data /app/config \
     && chown -R meco:meco /app/data \
-    && chmod 0555 /app /usr/local/lib/python3.13/site-packages/meco_news \
-    && chmod -R a=rX /usr/local/lib/python3.13/site-packages/meco_news
+    && chmod 0555 /app /usr/local/lib/python3.14/site-packages/meco_news \
+    && chmod -R a=rX /usr/local/lib/python3.14/site-packages/meco_news
 COPY config ./config
 RUN chown -R root:root /app/config && chmod -R a=rX /app/config
 

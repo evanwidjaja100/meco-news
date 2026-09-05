@@ -1,4 +1,5 @@
 """C6.4 actual context/layer harness — F-024."""
+
 import subprocess
 import unittest
 from pathlib import Path
@@ -12,6 +13,7 @@ class TestContext(unittest.TestCase):
 
     def test_verify_with_context(self):
         import os
+
         env = dict(os.environ)
         env["VERIFY_CONTEXT"] = "1"
         result = subprocess.run(["python", "scripts/verify-build-context.py"], capture_output=True, text=True, env=env)

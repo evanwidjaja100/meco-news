@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import unittest
-import tempfile
-from pathlib import Path
 
 
 class TestF014LoneSurrogateAbortsBatch(unittest.TestCase):
@@ -12,7 +10,6 @@ class TestF014LoneSurrogateAbortsBatch(unittest.TestCase):
 
     def test_surrogate_in_title_does_not_abort(self) -> None:
         from meco_news.collectors import parse_feed_result
-        from meco_news.models import NewsItem
 
         # Title containing an unpaired high surrogate (invalid scalar)
         # Correct policy: quarantine that item, deliver healthy sibling
@@ -20,9 +17,9 @@ class TestF014LoneSurrogateAbortsBatch(unittest.TestCase):
         good_title = "Gas infrastructure construction starts"
         rss = (
             b'<?xml version="1.0"?><rss><channel>'
-            b'<item><title>' + bad_title.encode("utf-8", errors="surrogatepass") + b'</title><link>https://example.com/bad</link></item>'
-            b'<item><title>' + good_title.encode() + b'</title><link>https://example.com/good</link></item>'
-            b'</channel></rss>'
+            b"<item><title>" + bad_title.encode("utf-8", errors="surrogatepass") + b"</title><link>https://example.com/bad</link></item>"
+            b"<item><title>" + good_title.encode() + b"</title><link>https://example.com/good</link></item>"
+            b"</channel></rss>"
         )
         # Current code: _bounded_text handles surrogates via errors=replace, but identity hashing may still receive surrogates
         # We assert that one bad item does not abort and that its fingerprint still hashes without error
@@ -125,10 +122,12 @@ class TestF018SourceDependentIdentity(unittest.TestCase):
     """F-018: title identity must be source-independent, publisher beats aggregator, fuzzy counted."""
 
     def test_title_key_source_independent(self) -> None:
-        from meco_news.models import normalized_title, NewsItem
+        from meco_news.models import NewsItem
 
         a = NewsItem(title="Pertamina kerahkan 33 mobil tangki BBM ke Flores", url="https://example.com/a", source="Petromindo")
-        b = NewsItem(title="Pertamina kerahkan 33 mobil tangki BBM ke Flores - Petromindo", url="https://example.com/b", source="Petromindo")
+        _b = NewsItem(
+            title="Pertamina kerahkan 33 mobil tangki BBM ke Flores - Petromindo", url="https://example.com/b", source="Petromindo"
+        )
         # normalized_title should strip ' - source' suffix, so keys equal regardless of source
         # Current normalized_title does strip, but title_key uses normalized_title(title, source) which is source-dependent for suffix only
         # The audit finds deeper source-dependence: title_key includes source in suffix removal, but not fully independent
@@ -146,7 +145,9 @@ class TestF018SourceDependentIdentity(unittest.TestCase):
         items = [
             NewsItem(title="Pertamina kerahkan 33 mobil tangki BBM ke Flores", url="https://example.com/a", source="A", published_at=now),
             NewsItem(title="Pertamina kerahkan 38 mobil tangki BBM menuju NTT", url="https://example.com/b", source="B", published_at=now),
-            NewsItem(title="Gas infrastructure construction starts for new project", url="https://example.com/c", source="C", published_at=now),
+            NewsItem(
+                title="Gas infrastructure construction starts for new project", url="https://example.com/c", source="C", published_at=now
+            ),
         ]
         # Permutation should give identical order; current _merge_group mutates objects and uses id()-based cache, may be order dependent under budget
         first = [x.url for x in deduplicate(items)]

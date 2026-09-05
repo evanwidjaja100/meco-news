@@ -61,7 +61,7 @@ Edit `config/watchlist.json` for sources, queries, topics, scoring, limits, deli
 Create a project-local venv and install an idempotent 15-minute due-check task:
 
 ```powershell
-py -3.13 -m venv .venv
+py -3.14 -m venv .venv
 powershell -ExecutionPolicy Bypass -File scripts/install-windows-task.ps1 -PythonPath .venv\Scripts\python.exe
 ```
 

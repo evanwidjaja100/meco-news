@@ -84,9 +84,8 @@ class NewsItem:
         self.source = _sanitize_scalar(self.source)
         self.source_url = _sanitize_scalar(self.source_url)
         self.summary = _sanitize_scalar(self.summary)
-        if any(0xD800 <= ord(c) <= 0xDFFF for c in orig_title + orig_url):
-            if not self.quarantine_reason:
-                self.quarantine_reason = "invalid_unicode_scalar"
+        if not self.quarantine_reason and any(0xD800 <= ord(c) <= 0xDFFF for c in orig_title + orig_url):
+            self.quarantine_reason = "invalid_unicode_scalar"
 
     @property
     def url_key(self) -> str:

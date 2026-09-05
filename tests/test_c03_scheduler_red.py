@@ -2,15 +2,10 @@
 
 Tests must be RED before fix, GREEN after C3.4 (typed outcomes + config reload + heartbeat fatal).
 """
+
 from __future__ import annotations
 
-import os
-import tempfile
 import unittest
-from pathlib import Path
-from unittest.mock import patch
-
-from meco_news.config import load_config
 
 
 class TestC34SchedulerRed(unittest.TestCase):
@@ -23,7 +18,9 @@ class TestC34SchedulerRed(unittest.TestCase):
         daemon_src = inspect.getsource(app_mod.run_daemon)
         # Before fix, run_once is annotated `-> int` and daemon does `run_once(config)` without assignment
         has_int_return = "-> int" in src
-        daemon_ignores = "run_once(config)" in daemon_src and "result = run_once" not in daemon_src and "outcome = run_once" not in daemon_src
+        daemon_ignores = (
+            "run_once(config)" in daemon_src and "result = run_once" not in daemon_src and "outcome = run_once" not in daemon_src
+        )
         if has_int_return and daemon_ignores:
             self.fail("BUG REPRODUCED: run_once returns int and daemon ignores return — must return/work with typed Outcome (C3.4)")
 
@@ -40,7 +37,9 @@ class TestC34SchedulerRed(unittest.TestCase):
             self.fail("BUG REPRODUCED: daemon reload not guarded — must try load_config and keep old on failure (C3.4)")
         if "effective" not in src.lower() and "MECO_CONFIG" not in src:
             # Should resolve effective path once
-            self.fail("BUG REPRODUCED: daemon does not resolve effective config path (default/MECO_CONFIG) — must reload correct file each cycle (C3.4)")
+            self.fail(
+                "BUG REPRODUCED: daemon does not resolve effective config path (default/MECO_CONFIG) — must reload correct file each cycle (C3.4)"
+            )
 
     def test_heartbeat_failure_is_fatal(self) -> None:
         from meco_news import app as app_mod
@@ -61,4 +60,6 @@ class TestC34SchedulerRed(unittest.TestCase):
         # Before fix, daemon does: if run_now or _is_due or _has_recovery_work: run_once, but _has_recovery_work is only checked at start, not each cycle
         # After fix, each cycle must recover incomplete/due work before planning new date
         if "_has_recovery_work" in src and src.count("_has_recovery_work") < 2:
-            self.fail("BUG REPRODUCED: recovery work only checked at startup, not each cycle — must recover before new date each wake (C3.4)")
+            self.fail(
+                "BUG REPRODUCED: recovery work only checked at startup, not each cycle — must recover before new date each wake (C3.4)"
+            )

@@ -419,10 +419,28 @@ class StateStore:
         # Handle both v2 (9 cols) and v3 (10 cols) for backward compat during migration
         if len(row) == 9:
             return DeliveryInfo(
-                int(row[0]), str(row[1]), int(row[2]), str(row[3]), str(row[4]), str(row[5]), str(row[6]), "", str(row[7] or ""), str(row[8] or "")
+                int(row[0]),
+                str(row[1]),
+                int(row[2]),
+                str(row[3]),
+                str(row[4]),
+                str(row[5]),
+                str(row[6]),
+                "",
+                str(row[7] or ""),
+                str(row[8] or ""),
             )
         return DeliveryInfo(
-            int(row[0]), str(row[1]), int(row[2]), str(row[3]), str(row[4]), str(row[5]), str(row[6]), str(row[7] or ""), str(row[8] or ""), str(row[9] or "")
+            int(row[0]),
+            str(row[1]),
+            int(row[2]),
+            str(row[3]),
+            str(row[4]),
+            str(row[5]),
+            str(row[6]),
+            str(row[7] or ""),
+            str(row[8] or ""),
+            str(row[9] or ""),
         )
 
     def create_delivery(
@@ -642,9 +660,7 @@ class StateStore:
                 if delivery.target_snapshot and target_snapshot and delivery.target_snapshot != target_snapshot:
                     raise InvalidTransition("target snapshot mismatch — delivery frozen to different destination")
                 if target_snapshot and not delivery.target_snapshot:
-                    self.connection.execute(
-                        "UPDATE deliveries SET target_snapshot=? WHERE delivery_id=?", (target_snapshot, delivery_id)
-                    )
+                    self.connection.execute("UPDATE deliveries SET target_snapshot=? WHERE delivery_id=?", (target_snapshot, delivery_id))
                 for position, item in enumerate(items):
                     chunk_index = int(item_chunk_indexes.get(item.fingerprint, 0))
                     self.connection.execute(
@@ -729,9 +745,7 @@ class StateStore:
             for row in rows
         ]
 
-    def begin_chunk_attempt(
-        self, chunk_id: int, *, run_id: str, owner_id: str, now: datetime | None = None
-    ) -> tuple[ChunkInfo, int]:
+    def begin_chunk_attempt(self, chunk_id: int, *, run_id: str, owner_id: str, now: datetime | None = None) -> tuple[ChunkInfo, int]:
         self._ensure_writable()
         self._assert_lease_owner(owner_id)
         now_text = _iso(now)

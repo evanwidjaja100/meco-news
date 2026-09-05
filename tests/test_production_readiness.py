@@ -115,7 +115,9 @@ class LeaseAndOutboxTests(unittest.TestCase):
                 self.assertTrue(store.acquire_lease("delivery", "owner", 180).acquired)
                 delivery = store.create_delivery("2026-08-24", config_hash="hash")
                 item = self._item()
-                store.prepare_delivery(delivery.delivery_id, [item], ["<b>hello</b>"], owner_id="owner", item_chunk_indexes={item.fingerprint: 0})
+                store.prepare_delivery(
+                    delivery.delivery_id, [item], ["<b>hello</b>"], owner_id="owner", item_chunk_indexes={item.fingerprint: 0}
+                )
                 chunk = store.due_chunks(delivery.delivery_id)[0]
                 store.begin_chunk_attempt(chunk.chunk_id, run_id="run", owner_id="owner")
                 snapshot = store.status_snapshot()
@@ -129,7 +131,9 @@ class LeaseAndOutboxTests(unittest.TestCase):
                 self.assertTrue(store.acquire_lease("delivery", "owner", 180).acquired)
                 item = self._item()
                 delivery = store.create_delivery("2026-08-24", config_hash="hash")
-                store.prepare_delivery(delivery.delivery_id, [item], ["<b>hello</b>"], owner_id="owner", item_chunk_indexes={item.fingerprint: 0})
+                store.prepare_delivery(
+                    delivery.delivery_id, [item], ["<b>hello</b>"], owner_id="owner", item_chunk_indexes={item.fingerprint: 0}
+                )
                 chunk = store.due_chunks(delivery.delivery_id)[0]
                 store.begin_chunk_attempt(chunk.chunk_id, run_id="run", owner_id="owner")
                 current = store.finish_chunk(
@@ -137,7 +141,9 @@ class LeaseAndOutboxTests(unittest.TestCase):
                 )
                 self.assertEqual(current.state, "needs_attention")
                 self.assertEqual(store.due_chunks(delivery.delivery_id), [])
-                resolved = store.resolve_chunk(chunk.chunk_id, "retry", owner_id="owner", reason="confirmed not delivered", operator="tester")
+                resolved = store.resolve_chunk(
+                    chunk.chunk_id, "retry", owner_id="owner", reason="confirmed not delivered", operator="tester"
+                )
                 self.assertEqual(resolved.state, "sending")
                 self.assertEqual(len(store.due_chunks(delivery.delivery_id)), 1)
 
