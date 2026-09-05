@@ -122,7 +122,7 @@
     {
       "id": "ADR-C04",
       "title": "Schema/version compatibility matrix + deployed inventory",
-      "status": "pending \u2014 current v2 = 2 tables, legacy v1 = sent_articles/runs; inventory TBD",
+      "status": "interim signed 2026-09-05 (CG1 baseline; full catalog in C2.1/C2.2) - current schema v3 = 13 tables (schema_migrations, sent_articles, runs, run_leases, deliveries, delivery_attempts, delivery_items, outbox_chunks, article_history, source_results, delivery_resolutions + sqlite_sequence), 5 indexes (idx_article_history_url/title, idx_deliveries_date_state, idx_chunks_due, idx_source_results_delivery); legacy v1 = sent_articles/runs; C1.2 inspection contract: missing/migration_required/compatible/newer_incompatible/malformed/corrupt with schema exit 5; C2.1/C2.2 must rerun the C1.2 truth table post-migration before CG2",
       "blocks": "Migration catalog, restore"
     },
     {
@@ -164,7 +164,7 @@
     {
       "id": "ADR-C11",
       "title": "Unicode scalar, control, bidi policy",
-      "status": "pending \u2014 controls translate to space, bidi stripped",
+      "status": "signed 2026-09-05 (CG1 logging baseline) - JSON logs to stdout, stderr reserved for documented human diagnostics; recursive redact of token/secret/password/authorization/cookie/api_key(+apikey) keys and bot-token/auth patterns; URL userinfo/query stripped unless allowlisted; controls to space, bidi stripped, hostile fields capped (2000 chars, stack 4000); attempt schema run/attempt/delivery/generation/chunk with exactly-one terminal event per attempt kind via one lifecycle finalizer (C1.4); error class/reason persisted separately from sanitized display text",
       "blocks": "Ingestion, logs, identity, Telegram"
     },
     {
