@@ -702,6 +702,8 @@ def _validate_options(parser: argparse.ArgumentParser, args: argparse.Namespace)
         parser.error("--top-candidates must be nonnegative")
     if args.max_heartbeat_age <= 0:
         parser.error("--max-heartbeat-age must be positive")
+    if args.resolve_chunk is None and (args.resolution is not None or args.reason is not None or args.operator is not None):
+        parser.error("--resolution, --reason, and --operator require --resolve-chunk")
     if args.resolve_chunk is not None and args.resolve_chunk <= 0:
         parser.error("--resolve-chunk must be positive")
     command_flags = [
