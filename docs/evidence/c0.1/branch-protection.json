@@ -1,30 +1,37 @@
 {
   "branch": "main",
-  "status": "remote-configured-protection-blocked-by-plan",
+  "status": "protected-public-remote",
   "remote": "https://github.com/evanwidjaja100/meco-news",
-  "visibility": "PRIVATE",
+  "visibility": "PUBLIC",
   "default_branch": "main",
-  "pushed_commit": "5ed3ecc",
-  "protection_attempt": "2026-09-05 PUT branches/main/protection -> HTTP 403: Upgrade to GitHub Pro or make this repository public to enable this feature",
-  "protection_required_before_CG0": {
-    "require_pull_request": true,
-    "required_reviewers": 1,
-    "dismiss_stale_reviews": true,
+  "protection_exported": "2026-09-05",
+  "protection": {
+    "required_reviews": 1,
     "require_code_owner_review": true,
+    "dismiss_stale_reviews": true,
+    "enforce_admins": true,
+    "allow_force_push": false,
+    "allow_deletion": false,
     "required_status_checks": [
       "unit",
       "quality",
       "package",
       "container"
-    ],
-    "enforce_admins": true,
-    "allow_force_push": false,
-    "allow_deletion": false
+    ]
   },
-  "options_to_unblock": [
-    "make repo public (free protection)",
-    "upgrade to GitHub Pro",
-    "record owner-accepted compensating controls (CODEOWNERS + CI + no-direct-push convention)"
+  "raw_api_keys": [
+    "allow_deletions",
+    "allow_force_pushes",
+    "allow_fork_syncing",
+    "block_creations",
+    "enforce_admins",
+    "lock_branch",
+    "required_conversation_resolution",
+    "required_linear_history",
+    "required_pull_request_reviews",
+    "required_signatures",
+    "required_status_checks",
+    "url"
   ],
-  "note": "Honest state: remote+push done; server-side protection NOT enforced. Do not mark CG0 complete until owner picks one option and evidence is exported."
+  "note": "Server-side protection enforced and verified via API GET. Evidence: gh api branches/main/protection."
 }

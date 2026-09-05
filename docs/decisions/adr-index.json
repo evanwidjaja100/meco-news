@@ -3,18 +3,18 @@
     {
       "id": "D1",
       "title": "Authoritative VCS and CI host",
-      "status": "decided — imported snapshot is authoritative",
+      "status": "confirmed - authoritative snapshot (source-declaration signed 2026-09-05)",
       "decision": "No prior remote/history recoverable (see docs/evidence/c0.1/source-declaration.md). This snapshot on branch main commit 249594c is authoritative baseline. CI: GitHub Actions (.github/workflows/ci.yml). Protected branch: main.",
-      "approver": "TBD owner — signature required before CG0",
-      "date": "2026-08-25"
+      "approver": "Evan Widjaja",
+      "date": "2026-09-05"
     },
     {
       "id": "D2",
       "title": "License, ownership, and release authority",
-      "status": "recorded — pending owner confirmation",
-      "decision": "License: UNLICENSED - owner approval required (pyproject.toml:11). Owner: PT Meco Inoxprima (pyproject.toml:12). Release approver: TBD, Operations approver: TBD, Security approver: TBD — must be named in ADR-C03 before CG1.",
-      "approver": "TBD",
-      "date": "2026-08-25"
+      "status": "confirmed - owner/release/operations/security: Evan Widjaja (2026-09-05)",
+      "decision": "License: UNLICENSED - owner approval required (pyproject.toml:11). Owner: PT Meco Inoxprima (pyproject.toml:12). Release approver: Evan Widjaja, Operations approver: Evan Widjaja, Security approver: Evan Widjaja \u2014 must be named in ADR-C03 before CG1.",
+      "approver": "Evan Widjaja",
+      "date": "2026-09-05"
     },
     {
       "id": "D3",
@@ -27,15 +27,15 @@
     {
       "id": "D4",
       "title": "Python versions",
-      "status": "decided",
-      "decision": "Support Python 3.12 and 3.13; production pin: 3.13.7-slim-bookworm@sha256:adafcc17694d715c905b4c7bebd96907a1fd5cf183395f0ebc4d3428bd22d92d (Dockerfile:2, compose.yaml:6).",
-      "approver": "TBD",
-      "date": "2026-08-25"
+      "status": "amended 2026-09-05 - support Python 3.14; venv 3.14.6; container python:3.14-slim-bookworm (digest pin pending per branch-protection note)",
+      "decision": "Support Python 3.14; local venv 3.14.6; container python:3.14-slim-bookworm (Dockerfile:2, compose.yaml:6); immutable digest pin pending.",
+      "approver": "Evan Widjaja",
+      "date": "2026-09-05"
     },
     {
       "id": "D5",
       "title": "Runtime libraries",
-      "status": "decided — stdlib-only retained",
+      "status": "decided \u2014 stdlib-only retained",
       "decision": "Runtime dependencies intentionally empty (requirements.lock empty, pyproject.toml:13 dependencies=[]). No Pydantic/HTTPX added; stdlib used for config, HTTP, XML/JSON, URL. Any added dependency requires ADR-C10 review.",
       "approver": "TBD",
       "date": "2026-08-25"
@@ -75,7 +75,7 @@
     {
       "id": "D10",
       "title": "Alert channel",
-      "status": "decided — independent where feasible",
+      "status": "decided \u2014 independent where feasible",
       "decision": "Use channel independent of production Telegram where feasible (ADR-C15). At minimum expose nonzero status/health (preflight.py:157 healthcheck + monitoring.md:14).",
       "approver": "TBD",
       "date": "2026-08-25"
@@ -101,104 +101,106 @@
     {
       "id": "ADR-C01",
       "title": "Authoritative source history or imported-snapshot declaration",
-      "status": "decided — source-declaration.md",
+      "status": "decided \u2014 source-declaration.md",
       "blocks": "All integration, release provenance",
       "decision": "Imported snapshot declared, manifest 249594c, branch main."
     },
     {
       "id": "ADR-C02",
       "title": "Supported Python versions and pinned patch",
-      "status": "decided — D4",
+      "status": "decided \u2014 D4",
       "blocks": "Packaging, CI, container"
     },
     {
       "id": "ADR-C03",
       "title": "License, copyright owner, approvers",
-      "status": "pending signature — pyproject UNLICENSED, owner PT Meco Inoxprima",
-      "blocks": "Metadata and release"
+      "status": "signed 2026-09-05 - owner/approvers: Evan Widjaja; UNLICENSED retained, owner PT Meco Inoxprima",
+      "blocks": "Metadata and release",
+      "approver": "Evan Widjaja",
+      "date": "2026-09-05"
     },
     {
       "id": "ADR-C04",
       "title": "Schema/version compatibility matrix + deployed inventory",
-      "status": "pending — current v2 = 2 tables, legacy v1 = sent_articles/runs; inventory TBD",
+      "status": "pending \u2014 current v2 = 2 tables, legacy v1 = sent_articles/runs; inventory TBD",
       "blocks": "Migration catalog, restore"
     },
     {
       "id": "ADR-C05",
       "title": "Explicit migration command + shared/exclusive guard + fence",
-      "status": "pending — design frozen, implementation in C2.1/C2.2",
+      "status": "pending \u2014 design frozen, implementation in C2.1/C2.2",
       "blocks": "Migration, state, restore"
     },
     {
       "id": "ADR-C06",
       "title": "Runtime lease capability shape",
-      "status": "pending — scoped delivery+scheduler, 180s TTL, heartbeat 60s",
+      "status": "pending \u2014 scoped delivery+scheduler, 180s TTL, heartbeat 60s",
       "blocks": "All state transitions"
     },
     {
       "id": "ADR-C07",
       "title": "Force + terminal retry grammar",
-      "status": "decided — force requires completed N and creates N+1 (storage.py:864), terminal retry same frozen failed generation allowlisted reason only",
+      "status": "decided \u2014 force requires completed N and creates N+1 (storage.py:864), terminal retry same frozen failed generation allowlisted reason only",
       "blocks": "Generations and CLI"
     },
     {
       "id": "ADR-C08",
       "title": "Telegram transport-stage + retry caps + wall-clock high-water",
-      "status": "pending — deterministic jitter app.py:92, caps base/max/jitter config",
+      "status": "pending \u2014 deterministic jitter app.py:92, caps base/max/jitter config",
       "blocks": "Outbox and scheduler"
     },
     {
       "id": "ADR-C09",
       "title": "Scheduler invalid reload + DeliveryTargetSnapshot HMAC",
-      "status": "pending — current reload validates each cycle app.py:567",
+      "status": "pending \u2014 current reload validates each cycle app.py:567",
       "blocks": "Scheduler and outbox"
     },
     {
       "id": "ADR-C10",
       "title": "XML parser/isolation + dependency review",
-      "status": "pending — stdlib XMLPullParser, no external dep",
+      "status": "pending \u2014 stdlib XMLPullParser, no external dep",
       "blocks": "Parser and worker security"
     },
     {
       "id": "ADR-C11",
       "title": "Unicode scalar, control, bidi policy",
-      "status": "pending — controls translate to space, bidi stripped",
+      "status": "pending \u2014 controls translate to space, bidi stripped",
       "blocks": "Ingestion, logs, identity, Telegram"
     },
     {
       "id": "ADR-C12",
       "title": "Zero-story/all-source policy + health thresholds",
-      "status": "decided — D9",
+      "status": "decided \u2014 D9",
       "blocks": "Outbox, health"
     },
     {
       "id": "ADR-C13",
       "title": "RPO/RTO/retention/encryption",
-      "status": "pending — RPO 24h RTO 60m targets per plan G2",
+      "status": "pending \u2014 RPO 24h RTO 60m targets per plan G2",
       "blocks": "Backup/restore"
     },
     {
       "id": "ADR-C14",
       "title": "Linux/NAS + Windows targets mandatory",
-      "status": "decided — D3",
+      "status": "decided \u2014 D3",
       "blocks": "Platform gates"
     },
     {
       "id": "ADR-C15",
       "title": "Independent alert channel ownership",
-      "status": "pending — D10",
+      "status": "pending \u2014 D10",
       "blocks": "Alerts and rollout"
     },
     {
       "id": "ADR-C16",
       "title": "CI host, registry, signing, SBOM, scans",
-      "status": "pending — CI .github/workflows/ci.yml pinned SHAs",
+      "status": "pending \u2014 CI .github/workflows/ci.yml pinned SHAs",
       "blocks": "Release gate"
     },
     {
       "id": "ADR-C17",
       "title": "Offline dry-run input contract",
-      "status": "decided — dry-run offline frozen local input, no network/state mutation (app.py:193)",
+      "status": "decided \u2014 dry-run offline frozen local input, no network/state mutation (app.py:193)",
       "blocks": "CLI, docs"
     }
   ]
