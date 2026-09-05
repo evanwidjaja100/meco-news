@@ -180,3 +180,90 @@ class TestF024BuildContextSentinel(unittest.TestCase):
             self.fail(
                 "BUG REPRODUCED: build-context sentinel checks text only, not actual Docker context/layers/history/runtime (F-024/C6.4)"
             )
+
+
+class TestF002CompanionOrphansAndMatrix(unittest.TestCase):
+    """F-002/C1.1: companion flags without --resolve-chunk; invalid-mode matrix; constructor silence."""
+
+    def test_orphan_companion_flags_rejected_without_chunk(self) -> None:
+        from meco_news.app import main
+
+        orphan_argv = [
+            ["--resolution", "sent"],
+            ["--reason", "verified-sent"],
+            ["--operator", "Evan Widjaja"],
+            ["--resolution", "retry", "--reason", "will-retry"],
+            ["--status", "--reason", "noise"],
+            ["--reason", ""],
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            state = str(Path(directory) / "state.db")
+            with patch.dict(os.environ, {"STATE_DB": state}, clear=False):
+                for argv in orphan_argv:
+                    with self.assertRaises(SystemExit) as exited:
+                        main(argv)
+                    self.assertEqual(exited.exception.code, 2, argv)
+
+    def test_invalid_modes_construct_nothing(self) -> None:
+        from meco_news import app as app_mod
+        from meco_news.app import main
+
+        invalid_argv = [
+            ["--resolve-chunk", "12"],
+            ["--resolution", "sent"],
+            ["--operator", "Evan Widjaja"],
+            ["--daemon", "--dry-run"],
+            ["--run-now"],
+            ["--online"],
+            ["--top-candidates", "3"],
+            ["--status", "--force"],
+            ["--preflight", "--daemon"],
+        ]
+        targets = [
+            "configure_logging",
+            "StateStore",
+            "collect_all",
+            "TelegramClient",
+            "create_backup",
+            "restore_backup",
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            state = str(Path(directory) / "state.db")
+            with patch.dict(os.environ, {"STATE_DB": state}, clear=False):
+                for argv in invalid_argv:
+                    with contextlib.ExitStack() as stack:
+                        mocks = [stack.enter_context(patch.object(app_mod, name)) for name in targets]
+                        with self.assertRaises(SystemExit) as exited:
+                            main(argv)
+                        self.assertEqual(exited.exception.code, 2, argv)
+                        for mocked in mocks:
+                            mocked.assert_not_called()
+
+    def test_dry_run_offline_and_byte_identical(self) -> None:
+        from meco_news import app as app_mod
+        from meco_news.app import main
+        import hashlib
+
+        def snapshot(root: Path) -> dict[str, tuple[int, int, str]]:
+            found: dict[str, tuple[int, int, str]] = {}
+            for path in sorted(root.rglob("*")):
+                if path.is_file():
+                    data = path.read_bytes()
+                    stat = path.stat()
+                    found[str(path.relative_to(root))] = (stat.st_mtime_ns, len(data), hashlib.sha256(data).hexdigest())
+            return found
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state.db"
+            log = Path(directory) / "logs" / "meco.jsonl"
+            with (
+                patch.dict(os.environ, {"STATE_DB": str(state), "LOG_FILE": str(log)}, clear=False),
+                patch.object(app_mod, "collect_all", side_effect=AssertionError("dry-run must not collect")),
+                patch.object(app_mod, "TelegramClient") as mock_tg,
+            ):
+                before_state = snapshot(Path(directory))
+                code = main(["--dry-run", "--config", "config/watchlist.json"])
+                after_state = snapshot(Path(directory))
+                self.assertEqual(code, 0)
+                mock_tg.assert_not_called()
+                self.assertEqual(before_state, after_state)
