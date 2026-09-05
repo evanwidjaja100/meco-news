@@ -15,13 +15,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.12", "3.13"]
+        python-version: ["3.14"]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
       - name: Test without public network
         run: python -B -m unittest discover -s tests -v
       - name: Validate configuration
@@ -33,7 +32,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
         with:
-          python-version: "3.13"
+          python-version: "3.14"
           cache: pip
       - name: Install locked development tools
         run: python -m pip install -r requirements-dev.lock
@@ -50,7 +49,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - name: Build wheel and source distribution
         run: python -m pip install build==1.2.2.post1 setuptools==75.8.0 wheel==0.45.1 && python -m build --no-isolation
       - name: Installed wheel smoke test
@@ -66,4 +65,4 @@ jobs:
       - name: Compose syntax
         run: docker compose config --no-interpolate --quiet
       - name: Build image
-        run: docker build --build-arg PYTHON_IMAGE=docker.io/library/python:3.13.7-slim-bookworm@sha256:adafcc17694d715c905b4c7bebd96907a1fd5cf183395f0ebc4d3428bd22d92d -t meco-news:ci .
+        run: docker build --build-arg PYTHON_IMAGE=docker.io/library/python:3.14-slim-bookworm -t meco-news:ci .

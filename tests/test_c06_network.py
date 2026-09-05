@@ -1,14 +1,10 @@
 """C6.1 network/Telegram fake-server corpus."""
+
 from __future__ import annotations
 
-import json
-import socket
-import tempfile
 import threading
 import unittest
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from pathlib import Path
-from unittest.mock import patch
 
 
 class FakeRSSHandler(BaseHTTPRequestHandler):
@@ -23,13 +19,17 @@ class FakeRSSHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "999999999")
             self.send_header("Content-Type", "application/rss+xml")
             self.end_headers()
-            self.wfile.write(b"x"*100)
+            self.wfile.write(b"x" * 100)
             return
         self.send_response(200)
         self.send_header("Content-Type", "application/rss+xml")
         self.end_headers()
-        self.wfile.write(b'<?xml version="1.0"?><rss><channel><item><title>Test</title><link>https://example.com/a</link></item></channel></rss>')
-    def log_message(self, *a, **kw): pass
+        self.wfile.write(
+            b'<?xml version="1.0"?><rss><channel><item><title>Test</title><link>https://example.com/a</link></item></channel></rss>'
+        )
+
+    def log_message(self, *a, **kw):
+        pass
 
 
 class NetworkCorpus(unittest.TestCase):
@@ -47,6 +47,7 @@ class NetworkCorpus(unittest.TestCase):
     def test_fetch_success(self):
         from meco_news.network import BoundedHTTPClient
         from meco_news.config import CollectionLimits, NetworkPolicy
+
         client = BoundedHTTPClient(CollectionLimits(), NetworkPolicy(require_https=False), allow_private_for_tests=True)
         resp = client.fetch(f"http://127.0.0.1:{self.port}/rss.xml")
         self.assertEqual(resp.status, 200)
@@ -55,8 +56,13 @@ class NetworkCorpus(unittest.TestCase):
     def test_redirect(self):
         from meco_news.network import BoundedHTTPClient
         from meco_news.config import CollectionLimits, NetworkPolicy
+
         # same_host redirect should succeed, cross-host without allowlist should fail
-        client = BoundedHTTPClient(CollectionLimits(max_redirects=2), NetworkPolicy(same_host_redirects_only=True, require_https=False), allow_private_for_tests=True)
+        client = BoundedHTTPClient(
+            CollectionLimits(max_redirects=2),
+            NetworkPolicy(same_host_redirects_only=True, require_https=False),
+            allow_private_for_tests=True,
+        )
         # This will redirect to /rss.xml on same host — should succeed
         resp = client.fetch(f"http://127.0.0.1:{self.port}/redirect")
         self.assertEqual(resp.status, 200)
@@ -64,6 +70,7 @@ class NetworkCorpus(unittest.TestCase):
     def test_large_content_length_rejected(self):
         from meco_news.network import BoundedHTTPClient, ResponseTooLarge
         from meco_news.config import CollectionLimits, NetworkPolicy
+
         client = BoundedHTTPClient(CollectionLimits(response_bytes=10), NetworkPolicy(require_https=False), allow_private_for_tests=True)
         with self.assertRaises(ResponseTooLarge) as error:
             client.fetch(f"http://127.0.0.1:{self.port}/large")
@@ -102,7 +109,9 @@ class NetworkCorpus(unittest.TestCase):
                 else:
                     self.send_response(404)
                     self.end_headers()
-            def log_message(self, *a, **kw): pass
+
+            def log_message(self, *a, **kw):
+                pass
 
         s = HTTPServer(("127.0.0.1", 0), TGHandler)
         port = s.server_port
@@ -131,6 +140,7 @@ class NetworkCorpus(unittest.TestCase):
 
     def test_url_policy(self):
         from meco_news.urls import validate_url, URLPolicyError
+
         with self.assertRaises(URLPolicyError):
             validate_url("https://user:pass@example.com/")
         with self.assertRaises(URLPolicyError):

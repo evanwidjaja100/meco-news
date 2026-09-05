@@ -19,8 +19,8 @@ meco-news = "meco_news.app:main"
 dev = [
   "coverage==7.6.10",
   "pytest==8.3.5",
-  "ruff==0.9.10",
-  "mypy==1.15.0",
+  "ruff==0.14.14",
+  "mypy==1.19.1",
 ]
 
 [tool.setuptools.packages.find]
@@ -31,14 +31,14 @@ version = {attr = "meco_news.__version__"}
 
 [tool.ruff]
 line-length = 140
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "UP", "SIM"]
 ignore = ["E501"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 strict = true
 warn_unused_ignores = true
 packages = ["meco_news"]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import tempfile
 import unittest
@@ -36,18 +37,22 @@ class TestF002OrphanCLIAndDryRunSideEffects(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             state = Path(d) / "state.db"
             log = Path(d) / "logs" / "meco.jsonl"
-            with patch.dict(os.environ, {"STATE_DB": str(state), "LOG_FILE": str(log)}, clear=False):
-                with patch("meco_news.app.collect_all", return_value=fake_collection) as mock_collect:
-                    with patch("meco_news.app.TelegramClient") as mock_tg:
-                        code = main(["--dry-run", "--config", "config/watchlist.json"])
-                        self.assertEqual(code, 0)
-                        # DRY-RUN MUST be offline: no Telegram construction
-                        mock_tg.assert_not_called()
-                        # Must leave no DB/WAL/SHM/log/status
-                        if state.exists():
-                            self.fail(f"BUG REPRODUCED: dry-run created state DB at {state} — must be offline (C1.1)")
-                        if log.exists():
-                            self.fail(f"BUG REPRODUCED: dry-run created log file at {log} — must not initialize file logging before validation (F-002)")
+            with (
+                patch.dict(os.environ, {"STATE_DB": str(state), "LOG_FILE": str(log)}, clear=False),
+                patch("meco_news.app.collect_all", return_value=fake_collection),
+                patch("meco_news.app.TelegramClient") as mock_tg,
+            ):
+                code = main(["--dry-run", "--config", "config/watchlist.json"])
+                self.assertEqual(code, 0)
+                # DRY-RUN MUST be offline: no Telegram construction
+                mock_tg.assert_not_called()
+                # Must leave no DB/WAL/SHM/log/status
+                if state.exists():
+                    self.fail(f"BUG REPRODUCED: dry-run created state DB at {state} — must be offline (C1.1)")
+                if log.exists():
+                    self.fail(
+                        f"BUG REPRODUCED: dry-run created log file at {log} — must not initialize file logging before validation (F-002)"
+                    )
 
     def test_invalid_config_creates_no_log_artifact(self) -> None:
         from meco_news.app import main
@@ -65,13 +70,13 @@ class TestF002OrphanCLIAndDryRunSideEffects(unittest.TestCase):
                 finally:
                     # Close file handlers so Windows can clean up temp dir
                     for h in list(logging.getLogger().root.handlers):
-                        try:
+                        with contextlib.suppress(Exception):
                             h.close()
-                        except Exception:
-                            pass
                         logging.getLogger().root.removeHandler(h)
                 if log.exists():
-                    self.fail("BUG REPRODUCED: invalid config created log file before validation — must validate before file logging (F-002)")
+                    self.fail(
+                        "BUG REPRODUCED: invalid config created log file before validation — must validate before file logging (F-002)"
+                    )
 
 
 class TestF004HealthFalseGreen(unittest.TestCase):
@@ -100,10 +105,14 @@ class TestF004HealthFalseGreen(unittest.TestCase):
                     score=10,
                     topic="lpg_energy",
                 )
-                store.prepare_delivery(delv.delivery_id, [item], ["<b>hello</b>"], owner_id="owner", item_chunk_indexes={item.fingerprint: 0})
+                store.prepare_delivery(
+                    delv.delivery_id, [item], ["<b>hello</b>"], owner_id="owner", item_chunk_indexes={item.fingerprint: 0}
+                )
                 chunk = store.due_chunks(delv.delivery_id)[0]
                 store.begin_chunk_attempt(chunk.chunk_id, run_id="test", owner_id="owner")
-                store.finish_chunk(chunk.chunk_id, "ambiguous", run_id="test", owner_id="owner", error_class="telegram_ambiguous", error_text="unknown")
+                store.finish_chunk(
+                    chunk.chunk_id, "ambiguous", run_id="test", owner_id="owner", error_class="telegram_ambiguous", error_text="unknown"
+                )
             healthy, report = healthcheck(config, state_path=path)
             if healthy:
                 self.fail(f"BUG REPRODUCED: health is healthy despite needs_attention — must be unhealthy (F-004). report={report}")
@@ -120,9 +129,11 @@ class TestF004HealthFalseGreen(unittest.TestCase):
                 # Complete it
                 s = store
                 # Manually complete for fixture
-                s.connection.execute("UPDATE deliveries SET state='completed', completed_at=datetime('now') WHERE delivery_id=?", (d1.delivery_id,))
+                s.connection.execute(
+                    "UPDATE deliveries SET state='completed', completed_at=datetime('now') WHERE delivery_id=?", (d1.delivery_id,)
+                )
                 s.connection.commit()
-                d2 = store.create_delivery("2026-08-25", config_hash="h")
+                _d2 = store.create_delivery("2026-08-25", config_hash="h")
                 snap = store.status_snapshot()
                 # Must expose both latest terminal vs active — currently status_snapshot only exposes active_delivery
                 if snap.get("active_delivery") and snap["active_delivery"]["delivery_date"] == "2026-08-24":
@@ -133,10 +144,11 @@ class TestF020LogRedactionIncomplete(unittest.TestCase):
     """F-020: logs must go to stdout, redact nested canaries, strip bidi, exactly one terminal."""
 
     def test_log_goes_to_stdout_not_stderr(self) -> None:
-        import io, logging
+        import io
+        import logging
         from meco_news.observability import configure_logging, emit_event
 
-        with tempfile.TemporaryDirectory() as d:
+        with tempfile.TemporaryDirectory():
             # Capture stdout
             import sys
 
@@ -164,5 +176,7 @@ class TestF024BuildContextSentinel(unittest.TestCase):
         from pathlib import Path
 
         p = Path("scripts/verify-build-context.py").read_text(encoding="utf-8")
-        if 'verify-build-context' in p and 'layer' not in p.lower() and 'history' not in p.lower():
-            self.fail("BUG REPRODUCED: build-context sentinel checks text only, not actual Docker context/layers/history/runtime (F-024/C6.4)")
+        if "verify-build-context" in p and "layer" not in p.lower() and "history" not in p.lower():
+            self.fail(
+                "BUG REPRODUCED: build-context sentinel checks text only, not actual Docker context/layers/history/runtime (F-024/C6.4)"
+            )

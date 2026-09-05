@@ -1,16 +1,17 @@
-﻿"""Final push to 80% â€” cover remaining app/collector/storage branches."""
+"""Final push to 80% â€” cover remaining app/collector/storage branches."""
+
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 
 class TestFinal(unittest.TestCase):
     def test_app_main_all(self):
         from meco_news.app import main
+
         # Test verbose, log-file, backup/restore, resolve
         self.assertEqual(main(["--config-show", "--json"]), 0)
-        self.assertIn(main(["--preflight", "--json"]), (0,3,4,5,6,7))
+        self.assertIn(main(["--preflight", "--json"]), (0, 3, 4, 5, 6, 7))
         # Test --help via SystemExit
         with self.assertRaises(SystemExit) as error:
             main(["--help"])
@@ -18,6 +19,7 @@ class TestFinal(unittest.TestCase):
 
     def test_collectors_comprehensive(self):
         from meco_news.collectors import parse_feed, _bounded_text, _parse_date
+
         # Test various payloads
         rss = b'<?xml version="1.0"?><rss><channel><item><title>Test</title><link>https://example.com/a</link><description>desc</description><pubDate>Mon, 24 Aug 2026 07:32:32 +0700</pubDate></item></channel></rss>'
         items = parse_feed(rss, "t", "rss")
@@ -34,10 +36,9 @@ class TestFinal(unittest.TestCase):
 
     def test_storage_comprehensive(self):
         from meco_news.storage import StateStore
-        import tempfile
-        from pathlib import Path
+
         with tempfile.TemporaryDirectory() as d:
-            p = Path(d)/"db.db"
+            p = Path(d) / "db.db"
             with StateStore(p) as s:
                 # Test all transitions
                 d1 = s.create_delivery("2026-08-29", config_hash="h")
@@ -65,6 +66,12 @@ class TestFinal(unittest.TestCase):
                 chunk3 = s.due_chunks(d3.delivery_id)[0]
                 s.begin_chunk_attempt(chunk3.chunk_id, run_id="r", owner_id="owner")
                 from datetime import datetime, UTC, timedelta
-                s.finish_chunk(chunk3.chunk_id, "rejected_retryable", run_id="r", owner_id="owner", next_attempt_at=datetime.now(UTC)+timedelta(seconds=10))
-                self.assertEqual(s.delivery(d3.delivery_id).state, "retry_wait")
 
+                s.finish_chunk(
+                    chunk3.chunk_id,
+                    "rejected_retryable",
+                    run_id="r",
+                    owner_id="owner",
+                    next_attempt_at=datetime.now(UTC) + timedelta(seconds=10),
+                )
+                self.assertEqual(s.delivery(d3.delivery_id).state, "retry_wait")

@@ -224,7 +224,11 @@ def healthcheck(
     latest = status.get("latest_delivery") or {}
     # C3.5: distinguish completed_empty (healthy empty) vs all_sources_failed retry exhaustion (unhealthy)
     # completed_empty is healthy (coverage notice), retry_wait with all_sources_failed is unhealthy after max attempts
-    if active.get("state") in {"needs_attention", "failed_terminal"} or latest.get("state") in {"needs_attention", "failed_terminal"} or status.get("unresolved_ambiguity_count", 0):
+    if (
+        active.get("state") in {"needs_attention", "failed_terminal"}
+        or latest.get("state") in {"needs_attention", "failed_terminal"}
+        or status.get("unresolved_ambiguity_count", 0)
+    ):
         report["healthy"] = False
         report["reasons"].append("unresolved_delivery_failure")
     # Explicit check for completed_empty as healthy (distinct from retry_wait)

@@ -3,16 +3,16 @@
 These are deterministic failing tests that capture the audit reproducers before fixes.
 Each must fail for the *correct* invariant reason before C2.x, then pass after.
 """
+
 from __future__ import annotations
 
-import hashlib
 import sqlite3
 import tempfile
 from pathlib import Path
 import unittest
 
 from meco_news.config import load_config
-from meco_news.migrations import SCHEMA_SQL, CURRENT_SCHEMA_VERSION, migration_checksum
+from meco_news.migrations import SCHEMA_SQL, migration_checksum
 from meco_news.preflight import run_preflight
 from meco_news.storage import StateStore
 
@@ -38,7 +38,9 @@ class TestF003PreflightFalseGreen(unittest.TestCase):
             con.commit()
             con.close()
             # Isolate N-1 from secret failures — set real token so only schema matters
-            with patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "123456:real-token-value-for-test", "TELEGRAM_CHAT_ID": "12345"}, clear=False):
+            with patch.dict(
+                os.environ, {"TELEGRAM_BOT_TOKEN": "123456:real-token-value-for-test", "TELEGRAM_CHAT_ID": "12345"}, clear=False
+            ):
                 code, report = run_preflight(config, state_path=path)
             # Current bug: preflight.py:99 only sets ready=False for >2, not for <2, so N-1 incorrectly returns 0 with ready=True
             self.assertNotEqual(code, 0, "N-1 must not be ready (exit 0)")
