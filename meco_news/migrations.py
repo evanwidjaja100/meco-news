@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Iterable
+from dataclasses import dataclass
 from hashlib import sha256
 
 
@@ -168,7 +171,7 @@ MIGRATION_DESCRIPTIONS = {
     3: "delivery target snapshot for outbox immutability",
 }
 
-# ponytail: immutable per-migration bytes — adding a future migration must not change prior checksums (C2.1)
+# ponytail: immutable per-migration bytes Ã¢â‚¬â€ adding a future migration must not change prior checksums (C2.1)
 MIGRATION_SQL = {
     1: """
 CREATE TABLE IF NOT EXISTS sent_articles (
@@ -315,7 +318,7 @@ CREATE INDEX IF NOT EXISTS idx_chunks_due ON outbox_chunks(state, next_attempt_a
 CREATE INDEX IF NOT EXISTS idx_source_results_delivery ON source_results(delivery_id);
 """,
     3: """
--- C3.3: freeze outbox destination identity — target_snapshot binds chat/config/parse_mode
+-- C3.3: freeze outbox destination identity Ã¢â‚¬â€ target_snapshot binds chat/config/parse_mode
 ALTER TABLE deliveries ADD COLUMN target_snapshot TEXT NOT NULL DEFAULT '';
 """,
 }
@@ -326,3 +329,111 @@ def migration_checksum(version: int) -> str:
     # Use per-migration SQL so future additions do not mutate prior checksums
     sql = MIGRATION_SQL.get(version, "")
     return sha256(f"{version}:{description}:{sql}".encode()).hexdigest()
+
+
+class MigrationNotPermitted(RuntimeError):
+    """A catalog migration was attempted without an explicit guard (C2.1)."""
+
+
+@dataclass(frozen=True, slots=True)
+class MigrationGuard:
+    """Explicit capability required to run catalog migrations.
+
+    C2.1 admits only the ``tests`` scope. The exclusive maintenance guard
+    (C2.2, ADR-C05) widens the accepted scope; the public migrate command
+    never constructs this object and always fails closed until then.
+    """
+
+    scope: str
+
+    @classmethod
+    def for_tests(cls) -> MigrationGuard:
+        return cls(scope="tests")
+
+
+# Objects each migration must define, from immutable canonical bytes, so a
+# future migration cannot silently drop a predecessor dependency (C2.1).
+REQUIRED_CATALOG_OBJECTS: dict[int, tuple[str, ...]] = {
+    1: ("sent_articles", "runs"),
+    2: (
+        "schema_migrations",
+        "run_leases",
+        "deliveries",
+        "delivery_attempts",
+        "delivery_items",
+        "outbox_chunks",
+        "article_history",
+        "source_results",
+        "delivery_resolutions",
+    ),
+    3: ("target_snapshot",),
+}
+
+CatalogEntry = tuple[int, str, str]
+
+
+def catalog_entries() -> tuple[CatalogEntry, ...]:
+    versions = sorted(set(MIGRATION_DESCRIPTIONS) | set(MIGRATION_SQL))
+    return tuple((version, MIGRATION_DESCRIPTIONS.get(version, ""), MIGRATION_SQL.get(version, "")) for version in versions)
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogReport:
+    ok: bool
+    versions: tuple[int, ...]
+    checksums: tuple[str, ...]
+    issues: tuple[str, ...]
+
+
+def verify_catalog(entries: Iterable[CatalogEntry] | None = None) -> CatalogReport:
+    """Verify the immutable migration catalog without touching any database.
+
+    Checks ordered versions (gaps, duplicates, missing, unsupported future),
+    per-version description/SQL presence, checksum stability, and required
+    objects. Adding a future migration must not alter prior checksums.
+    """
+    items = list(catalog_entries() if entries is None else entries)
+    issues: list[str] = []
+    versions = [int(version) for version, _, _ in items]
+    counts = Counter(versions)
+    duplicates = sorted(version for version, count in counts.items() if count > 1)
+    if duplicates:
+        issues.append(f"duplicate migration version(s): {', '.join(str(v) for v in duplicates)}")
+    unique = sorted(set(versions))
+    expected = list(range(1, CURRENT_SCHEMA_VERSION + 1))
+    if unique != expected:
+        missing = [v for v in expected if v not in set(unique)]
+        unsupported = sorted(v for v in unique if v > CURRENT_SCHEMA_VERSION)
+        if missing:
+            issues.append(f"gap: missing migration version(s): {', '.join(str(v) for v in missing)}")
+        if unsupported:
+            issues.append(f"unsupported migration version(s) newer than {CURRENT_SCHEMA_VERSION}: " + ", ".join(str(v) for v in unsupported))
+    checksums: list[str] = []
+    for version, description, sql in items:
+        entry_checksum = sha256(f"{version}:{description}:{sql}".encode()).hexdigest()
+        checksums.append(entry_checksum)
+        if not description:
+            issues.append(f"migration {version} has no description")
+        if not sql.strip():
+            issues.append(f"migration {version} has no canonical SQL")
+        if entry_checksum != migration_checksum(int(version)):
+            issues.append(f"migration {version} checksum mismatch against canonical bytes")
+        for required in REQUIRED_CATALOG_OBJECTS.get(int(version), ()):
+            if required not in str(sql):
+                issues.append(f"migration {version} is missing required object {required!r}")
+    ordered = tuple(sorted(set(versions)))
+    return CatalogReport(not issues, ordered, tuple(checksums), tuple(issues))
+
+
+def ledger_contiguity_issue(versions: list[int]) -> str | None:
+    """Report a gap/duplicate/empty defect in a migration ledger version list."""
+    if not versions:
+        return "migration ledger is empty"
+    counts = Counter(versions)
+    duplicates = sorted(version for version, count in counts.items() if count > 1)
+    if duplicates:
+        return f"migration ledger has duplicate version(s): {', '.join(str(v) for v in duplicates)}"
+    unique = sorted(set(versions))
+    if unique != list(range(1, unique[-1] + 1)):
+        return f"migration ledger has a gap: versions {', '.join(str(v) for v in unique)} are not contiguous from 1"
+    return None

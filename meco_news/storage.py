@@ -14,7 +14,16 @@ from typing import Any
 from collections.abc import Iterable, Mapping, Sequence
 
 from . import __version__
-from .migrations import CURRENT_SCHEMA_VERSION, SCHEMA_SQL, migration_checksum
+from .migrations import (
+    CURRENT_SCHEMA_VERSION,
+    MIGRATION_SQL,
+    SCHEMA_SQL,
+    MigrationGuard,
+    MigrationNotPermitted,
+    ledger_contiguity_issue,
+    migration_checksum,
+    verify_catalog,
+)
 from .observability import redact as _redact_log_value
 from .models import NewsItem, canonical_url
 
@@ -37,6 +46,16 @@ class DatabaseReadOnly(StateError):
 
 class RetryNotDue(StateError):
     pass
+
+
+MIGRATION_REQUIRED_MESSAGE = (
+    "database schema requires migration (migration_required); automatic migration is disabled, "
+    "use the audited migrate command"
+)
+
+
+class MigrationRequiredError(StateError):
+    """A state database needs migration and must not be auto-migrated (C2.1)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +111,173 @@ def _key(value: str) -> str:
     return sha256(value.encode("utf-8", errors="replace")).hexdigest()
 
 
+def _apply_schema_to(connection: sqlite3.Connection) -> None:
+    # The schema file contains only standalone CREATE statements. Executing
+    # them individually preserves the surrounding transaction; SQLite's
+    # executescript helper would implicitly commit before running it.
+    for statement in SCHEMA_SQL.split(";"):
+        if statement.strip():
+            connection.execute(statement)
+
+
+def _record_migration_to(connection: sqlite3.Connection, version: int, app_version: str) -> None:
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, checksum, applied_at, app_version) VALUES (?, ?, ?, ?)",
+        (version, migration_checksum(version), _iso(), app_version),
+    )
+
+
+def _adopt_legacy_rows(connection: sqlite3.Connection) -> None:
+    article_rows = connection.execute(
+        "SELECT fingerprint, title, url, source, topic, score, sent_at, delivery_date FROM sent_articles"
+    ).fetchall()
+    run_rows = connection.execute(
+        "SELECT delivery_date, started_at, completed_at, status, item_count, error FROM runs"
+    ).fetchall()
+    dates = {str(row[0]) for row in run_rows} | {str(row[7]) for row in article_rows}
+    for delivery_date in sorted(dates):
+        run = next((row for row in run_rows if row[0] == delivery_date), None)
+        items = [row for row in article_rows if row[7] == delivery_date]
+        if run and run[3] == "completed":
+            state = "completed_empty" if not items else "completed"
+            terminal_error = ""
+        else:
+            # Legacy running/failed rows are recorded for audit but are
+            # never treated as content that may be replayed automatically.
+            state = "failed_terminal"
+            terminal_error = _sanitize_error((run[5] if run else "legacy incomplete run") or "legacy incomplete run")
+        started_at = str(run[1]) if run else _iso()
+        completed_at = str(run[2]) if run and run[2] else (_iso() if state.startswith("completed") else None)
+        connection.execute(
+            "INSERT OR IGNORE INTO deliveries(delivery_date,generation,kind,state,run_id,config_hash,started_at,prepared_at,completed_at,terminal_error) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                delivery_date,
+                0,
+                "empty" if not items else "content",
+                state,
+                f"legacy-{delivery_date}",
+                "legacy",
+                started_at,
+                completed_at,
+                completed_at,
+                terminal_error,
+            ),
+        )
+        delivery_id = connection.execute(
+            "SELECT delivery_id FROM deliveries WHERE delivery_date=? AND generation=0", (delivery_date,)
+        ).fetchone()[0]
+        for position, row in enumerate(items):
+            fingerprint, title, url, source, topic, score, sent_at, _ = row
+            bounded_title = _sanitize_error(title, 512)
+            bounded_url = _sanitize_error(url, 2048)
+            url_key = _key(canonical_url(bounded_url))
+            connection.execute(
+                "INSERT OR IGNORE INTO delivery_items(delivery_id,position,fingerprint,url_key,title_key,title,url,source,score,topic,chunk_index) VALUES (?,?,?,?,?,?,?,?,?,?,0)",
+                (
+                    delivery_id,
+                    position,
+                    fingerprint,
+                    url_key,
+                    fingerprint,
+                    bounded_title,
+                    bounded_url,
+                    _sanitize_error(source, 160),
+                    score,
+                    _sanitize_error(topic, 160),
+                ),
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO article_history(url_key,title_key,fingerprint,delivery_id,chunk_id,title,url,source,sent_at) VALUES (?,?,?,?,NULL,?,?,?,?)",
+                (
+                    url_key,
+                    fingerprint,
+                    fingerprint,
+                    delivery_id,
+                    bounded_title,
+                    bounded_url,
+                    _sanitize_error(source, 160),
+                    str(sent_at),
+                ),
+            )
+
+
+def _ledger_versions(rows: Sequence[sqlite3.Row]) -> list[int]:
+    """Parse ledger versions; a non-integer version is malformed (C2.1)."""
+    versions: list[int] = []
+    for row in rows:
+        try:
+            versions.append(int(row[0]))
+        except (TypeError, ValueError):
+            raise StateError("migration ledger holds a non-integer version") from None
+    return versions
+
+
+def run_catalog_migrations(
+    connection: sqlite3.Connection, *, guard: MigrationGuard | None, app_version: str
+) -> int:
+    """Apply pending catalog migrations under an explicit guard; return versions applied.
+
+    C2.1 admits only the test guard. The public migrate command never builds
+    one and fails closed with maintenance_unavailable until C2.2 supplies the
+    exclusive maintenance guard. A repeat run over a current database applies
+    nothing and writes nothing.
+    """
+    if not isinstance(guard, MigrationGuard) or guard.scope != "tests":
+        raise MigrationNotPermitted("catalog migration requires an explicit test or maintenance guard")
+    report = verify_catalog()
+    if not report.ok:
+        raise StateError(f"migration catalog is invalid: {'; '.join(report.issues)}")
+    tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if tables and connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+        raise StateError("database integrity check failed before schema inspection")
+    if "schema_migrations" not in tables:
+        legacy = bool({"sent_articles", "runs"} & tables)
+        if tables and not legacy:
+            raise StateError("schema migration ledger is absent and no legacy v1 tables were found")
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            _apply_schema_to(connection)
+            if legacy:
+                _adopt_legacy_rows(connection)
+            for version in range(1, CURRENT_SCHEMA_VERSION + 1):
+                _record_migration_to(connection, version, app_version)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise StateError("database integrity check failed after migration")
+        return CURRENT_SCHEMA_VERSION
+    rows = connection.execute("SELECT version, checksum FROM schema_migrations ORDER BY version").fetchall()
+    versions = _ledger_versions(rows)
+    contiguity = ledger_contiguity_issue(versions)
+    if contiguity is not None:
+        raise StateError(f"schema migration ledger is invalid: {contiguity}")
+    for row in rows:
+        if int(row[0]) <= CURRENT_SCHEMA_VERSION and row[1] != migration_checksum(int(row[0])):
+            raise StateError(f"schema migration checksum mismatch at version {row[0]}")
+    current = versions[-1]
+    if current > CURRENT_SCHEMA_VERSION:
+        raise StateError(f"database schema {current} is newer than application schema {CURRENT_SCHEMA_VERSION}")
+    if current >= CURRENT_SCHEMA_VERSION:
+        return 0
+    pending = list(range(current + 1, CURRENT_SCHEMA_VERSION + 1))
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        for version in pending:
+            for statement in MIGRATION_SQL[version].split(";"):
+                if statement.strip():
+                    connection.execute(statement)
+            _record_migration_to(connection, version, app_version)
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+        raise StateError("database integrity check failed after migration")
+    return len(pending)
+
+
 class StateStore:
     """A short-transaction state boundary.
 
@@ -122,28 +308,34 @@ class StateStore:
             self.connection = sqlite3.connect(database_path, timeout=busy_timeout_ms / 1000)
         self.connection.row_factory = sqlite3.Row
         self._lock = threading.RLock()
-        self.connection.execute("PRAGMA foreign_keys=ON")
-        self.connection.execute(f"PRAGMA busy_timeout={int(busy_timeout_ms)}")
-        if not self.readonly:
-            self.connection.execute("PRAGMA journal_mode=WAL")
-            self.connection.execute("PRAGMA synchronous=NORMAL")
-            self._ensure_schema()
+        try:
+            self.connection.execute("PRAGMA foreign_keys=ON")
+            self.connection.execute(f"PRAGMA busy_timeout={int(busy_timeout_ms)}")
+            if not self.readonly:
+                # C2.1: verify (read-only SELECTs) before enabling WAL, so a
+                # refused open cannot change a single byte of the database.
+                self._ensure_schema()
+                self.connection.execute("PRAGMA journal_mode=WAL")
+                self.connection.execute("PRAGMA synchronous=NORMAL")
+        except Exception:
+            # A refused open must not leak a locked connection (C2.1).
+            self.connection.close()
+            raise
 
     def _ensure_schema(self) -> None:
         tables = {row[0] for row in self.connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if tables and self.integrity_check() != "ok":
             raise StateError("database integrity check failed before schema inspection")
         if "schema_migrations" not in tables:
-            legacy = bool({"sent_articles", "runs"} & tables)
-            if legacy and self.path:
-                self._backup_before_migrate()
+            if tables:
+                # Legacy v1 or partial state: never auto-migrate at open (C2.1).
+                raise MigrationRequiredError(MIGRATION_REQUIRED_MESSAGE)
             self.connection.execute("BEGIN IMMEDIATE")
             try:
-                self._apply_schema()
-                self._copy_legacy_if_present(legacy)
-                self._record_migration(1)
-                self._record_migration(2)
-                self._record_migration(3)
+                _apply_schema_to(self.connection)
+                _record_migration_to(self.connection, 1, __version__)
+                _record_migration_to(self.connection, 2, __version__)
+                _record_migration_to(self.connection, 3, __version__)
                 self.connection.commit()
             except Exception:
                 self.connection.rollback()
@@ -153,11 +345,17 @@ class StateStore:
             return
 
         rows = self.connection.execute("SELECT version, checksum FROM schema_migrations ORDER BY version").fetchall()
+        if not rows:
+            raise MigrationRequiredError(MIGRATION_REQUIRED_MESSAGE)
+        versions = _ledger_versions(rows)
+        contiguity = ledger_contiguity_issue(versions)
+        if contiguity is not None:
+            raise StateError(f"schema migration ledger is invalid: {contiguity}")
         for row in rows:
             expected = migration_checksum(int(row[0]))
             if row[1] != expected:
                 raise StateError(f"schema migration checksum mismatch at version {row[0]}")
-        current = int(rows[-1][0]) if rows else 0
+        current = versions[-1]
         if current > CURRENT_SCHEMA_VERSION:
             raise StateError(f"database schema {current} is newer than application schema {CURRENT_SCHEMA_VERSION}")
         if current >= CURRENT_SCHEMA_VERSION:
@@ -174,38 +372,12 @@ class StateStore:
             missing = sorted(required - tables)
             if missing:
                 raise StateError(f"database schema is missing required table(s): {', '.join(missing)}")
-            # Ensure v3 column exists even for DBs created with old SCHEMA_SQL (idempotent)
             cols = {r[1] for r in self.connection.execute("PRAGMA table_info(deliveries)").fetchall()}
             if "target_snapshot" not in cols:
-                self.connection.execute("ALTER TABLE deliveries ADD COLUMN target_snapshot TEXT NOT NULL DEFAULT ''")
-                self.connection.commit()
-        if current < CURRENT_SCHEMA_VERSION:
-            if self.path:
-                self._backup_before_migrate()
-            self.connection.execute("BEGIN IMMEDIATE")
-            try:
-                self._apply_schema()
-                # Apply per-version alters idempotently
-                for version in range(current + 1, CURRENT_SCHEMA_VERSION + 1):
-                    if version == 3:
-                        cols = {r[1] for r in self.connection.execute("PRAGMA table_info(deliveries)").fetchall()}
-                        if "target_snapshot" not in cols:
-                            self.connection.execute("ALTER TABLE deliveries ADD COLUMN target_snapshot TEXT NOT NULL DEFAULT ''")
-                    self._record_migration(version)
-                self.connection.commit()
-            except Exception:
-                self.connection.rollback()
-                raise
-            if self.integrity_check() != "ok":
-                raise StateError("database integrity check failed after migration")
-
-    def _apply_schema(self) -> None:
-        # The schema file contains only standalone CREATE statements. Executing
-        # them individually preserves the surrounding transaction; SQLite's
-        # executescript helper would implicitly commit before running it.
-        for statement in SCHEMA_SQL.split(";"):
-            if statement.strip():
-                self.connection.execute(statement)
+                # A current-ledger database without the v3 column needs the audited migration path.
+                raise MigrationRequiredError(MIGRATION_REQUIRED_MESSAGE)
+            return
+        raise MigrationRequiredError(MIGRATION_REQUIRED_MESSAGE)
 
     def _backup_before_migrate(self) -> Path | None:
         if not self.path or not self.path.exists():
@@ -218,85 +390,6 @@ class StateStore:
             counter += 1
         self.backup_to(target)
         return target
-
-    def _record_migration(self, version: int) -> None:
-        self.connection.execute(
-            "INSERT OR IGNORE INTO schema_migrations(version, checksum, applied_at, app_version) VALUES (?, ?, ?, ?)",
-            (version, migration_checksum(version), _iso(), __version__),
-        )
-
-    def _copy_legacy_if_present(self, legacy: bool) -> None:
-        if not legacy:
-            return
-        article_rows = self.connection.execute(
-            "SELECT fingerprint, title, url, source, topic, score, sent_at, delivery_date FROM sent_articles"
-        ).fetchall()
-        run_rows = self.connection.execute("SELECT delivery_date, started_at, completed_at, status, item_count, error FROM runs").fetchall()
-        dates = {str(row[0]) for row in run_rows} | {str(row[7]) for row in article_rows}
-        for delivery_date in sorted(dates):
-            run = next((row for row in run_rows if row[0] == delivery_date), None)
-            items = [row for row in article_rows if row[7] == delivery_date]
-            if run and run[3] == "completed":
-                state = "completed_empty" if not items else "completed"
-                terminal_error = ""
-            else:
-                # Legacy running/failed rows are recorded for audit but are
-                # never treated as content that may be replayed automatically.
-                state = "failed_terminal"
-                terminal_error = _sanitize_error((run[5] if run else "legacy incomplete run") or "legacy incomplete run")
-            started_at = str(run[1]) if run else _iso()
-            completed_at = str(run[2]) if run and run[2] else (_iso() if state.startswith("completed") else None)
-            self.connection.execute(
-                "INSERT OR IGNORE INTO deliveries(delivery_date,generation,kind,state,run_id,config_hash,started_at,prepared_at,completed_at,terminal_error) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (
-                    delivery_date,
-                    0,
-                    "empty" if not items else "content",
-                    state,
-                    f"legacy-{delivery_date}",
-                    "legacy",
-                    started_at,
-                    completed_at,
-                    completed_at,
-                    terminal_error,
-                ),
-            )
-            delivery_id = self.connection.execute(
-                "SELECT delivery_id FROM deliveries WHERE delivery_date=? AND generation=0", (delivery_date,)
-            ).fetchone()[0]
-            for position, row in enumerate(items):
-                fingerprint, title, url, source, topic, score, sent_at, _ = row
-                bounded_title = _sanitize_error(title, 512)
-                bounded_url = _sanitize_error(url, 2048)
-                url_key = _key(canonical_url(bounded_url))
-                self.connection.execute(
-                    "INSERT OR IGNORE INTO delivery_items(delivery_id,position,fingerprint,url_key,title_key,title,url,source,score,topic,chunk_index) VALUES (?,?,?,?,?,?,?,?,?,?,0)",
-                    (
-                        delivery_id,
-                        position,
-                        fingerprint,
-                        url_key,
-                        fingerprint,
-                        bounded_title,
-                        bounded_url,
-                        _sanitize_error(source, 160),
-                        score,
-                        _sanitize_error(topic, 160),
-                    ),
-                )
-                self.connection.execute(
-                    "INSERT OR IGNORE INTO article_history(url_key,title_key,fingerprint,delivery_id,chunk_id,title,url,source,sent_at) VALUES (?,?,?,?,NULL,?,?,?,?)",
-                    (
-                        url_key,
-                        fingerprint,
-                        fingerprint,
-                        delivery_id,
-                        bounded_title,
-                        bounded_url,
-                        _sanitize_error(source, 160),
-                        str(sent_at),
-                    ),
-                )
 
     def _ensure_writable(self) -> None:
         if self.readonly:

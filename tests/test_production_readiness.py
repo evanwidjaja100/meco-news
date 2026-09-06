@@ -14,7 +14,8 @@ from meco_news.collectors import CollectionResult, SourceResult
 from meco_news.config import ConfigurationError, load_config
 from meco_news.models import NewsItem
 from meco_news.ranking import deduplicate, filter_fresh
-from meco_news.storage import StateStore
+from meco_news.migrations import MigrationGuard
+from meco_news.storage import MigrationRequiredError, StateStore, run_catalog_migrations
 from meco_news.telegram import build_digest, utf16_units
 from meco_news.timezones import get_timezone
 from meco_news.urls import URLPolicyError, validate_url
@@ -165,6 +166,16 @@ class LeaseAndOutboxTests(unittest.TestCase):
             )
             connection.commit()
             connection.close()
+            # C2.1: runtime open refuses migration-required state; only the
+            # guarded catalog runner may adopt legacy databases.
+            with self.assertRaises(MigrationRequiredError):
+                StateStore(path)
+            migration = sqlite3.connect(path)
+            try:
+                applied = run_catalog_migrations(migration, guard=MigrationGuard.for_tests(), app_version="2.0.0")
+            finally:
+                migration.close()
+            self.assertEqual(applied, 3)
             with StateStore(path) as store:
                 self.assertEqual(store.schema_version, 3)
                 self.assertTrue(store.already_completed("2026-08-24"))

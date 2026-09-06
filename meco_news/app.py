@@ -72,6 +72,8 @@ class RunOptions:
     reason: str | None
     operator: str | None
     log_file: str | None
+    migrate: bool
+    to_version: int | None
 
     @classmethod
     def from_namespace(cls, namespace: argparse.Namespace) -> RunOptions:
@@ -753,6 +755,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reason", help="Audited reason for manual chunk resolution")
     parser.add_argument("--operator", help="Operator identity for manual chunk resolution")
     parser.add_argument("--log-file", help="Optional rotating JSONL log path for live modes")
+    parser.add_argument("--migrate", action="store_true", help="Apply pending schema migrations (disabled until C2.2)")
+    parser.add_argument("--to-version", type=int, help="Target schema version for --migrate")
     return parser
 
 
@@ -765,6 +769,12 @@ def _validate_options(parser: argparse.ArgumentParser, args: argparse.Namespace)
         parser.error("--resolution, --reason, and --operator require --resolve-chunk")
     if args.resolve_chunk is not None and args.resolve_chunk <= 0:
         parser.error("--resolve-chunk must be positive")
+    if args.to_version is not None and not args.migrate:
+        parser.error("--to-version requires --migrate")
+    if args.migrate and args.to_version is None:
+        parser.error("--migrate requires --to-version")
+    if args.to_version is not None and args.to_version <= 0:
+        parser.error("--to-version must be positive")
     command_flags = [
         args.test_telegram,
         args.discover_chat,
@@ -775,6 +785,7 @@ def _validate_options(parser: argparse.ArgumentParser, args: argparse.Namespace)
         bool(args.backup),
         bool(args.restore),
         args.resolve_chunk is not None,
+        args.migrate,
     ]
     if sum(command_flags) > 1:
         parser.error("explicit command modes are mutually exclusive")
@@ -862,6 +873,8 @@ def main(argv: list[str] | None = None) -> int:
         startup_mode = "restore"
     elif args.resolve_chunk is not None:
         startup_mode = "resolve_chunk"
+    elif args.migrate:
+        startup_mode = "migrate"
     elif args.test_telegram:
         startup_mode = "test_telegram"
     elif args.discover_chat:
@@ -929,6 +942,11 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             emit_event("resolution_failed", level=logging.ERROR, outcome="failed_terminal", error_class=type(exc).__name__)
             return 1
+    if args.migrate:
+        # C2.1: audited grammar only; execution stays disabled until the C2.2 maintenance guard exists.
+        emit_event("migration_unavailable", level=logging.ERROR, outcome="maintenance_unavailable", error_class="MaintenanceUnavailable")
+        print("database migration execution is disabled until C2.2 (maintenance_unavailable); no state was changed", file=sys.stderr)
+        return 1
     if args.test_telegram or args.discover_chat:
         if looks_placeholder(os.getenv("TELEGRAM_BOT_TOKEN", "")) or (
             args.test_telegram and looks_placeholder(os.getenv("TELEGRAM_CHAT_ID", ""))

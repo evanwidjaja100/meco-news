@@ -37,6 +37,8 @@ If at least one source succeeds but no eligible story remains, the service sends
 
 `--force` creates a new audited generation only after the date is complete and no ambiguity exists. It still excludes acknowledged URL/title history; it is not a replay command.
 
+Schema migration uses an explicit audited command (`--migrate --to-version N`), but execution stays disabled until the C2.2 exclusive maintenance guard exists: it always fails closed with `maintenance_unavailable` (exit 1) and changes no state. Runtime startup never auto-migrates; a state database that needs migration fails closed with `migration_required`.
+
 ## Safe operations
 
 ```powershell

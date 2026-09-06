@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from .migrations import CURRENT_SCHEMA_VERSION, migration_checksum
+from .migrations import CURRENT_SCHEMA_VERSION, ledger_contiguity_issue, migration_checksum
 
 SchemaClassification = Literal[
     "missing",
@@ -132,6 +132,9 @@ def inspect_state(path: str | Path) -> InspectionResult:
                 return InspectionResult("malformed", 0, "ok", "migration ledger holds a non-integer version")
             if versions[-1] <= CURRENT_SCHEMA_VERSION and row[1] != migration_checksum(versions[-1]):
                 return InspectionResult("malformed", versions[-1], "ok", f"migration checksum mismatch at version {versions[-1]}")
+        contiguity = ledger_contiguity_issue(versions)
+        if contiguity is not None:
+            return InspectionResult("malformed", versions[-1], "ok", f"migration ledger is invalid: {contiguity}")
         current = versions[-1]
         if current < CURRENT_SCHEMA_VERSION:
             return InspectionResult(
