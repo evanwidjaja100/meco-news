@@ -24,6 +24,8 @@ from .migrations import (
     migration_checksum,
     verify_catalog,
 )
+from .maintenance import MaintenanceBusy
+from .maintenance import is_maintenance_held
 from .observability import redact as _redact_log_value
 from .models import NewsItem, canonical_url
 
@@ -290,6 +292,9 @@ class StateStore:
         self.readonly = readonly and not memory_only
         self.path = None if memory_only else Path(path)
         if self.path and not self.readonly:
+            held, hold_info = is_maintenance_held(self.path.resolve())
+            if held:
+                raise MaintenanceBusy(f"exclusive maintenance in progress for {self.path.resolve()} (owner {hold_info.get('owner')}); runtime startup refused")
             self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.readonly:
             if not self.path or not self.path.exists():
