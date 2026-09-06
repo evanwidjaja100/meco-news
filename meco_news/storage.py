@@ -129,6 +129,19 @@ def _record_migration_to(connection: sqlite3.Connection, version: int, app_versi
     )
 
 
+def _apply_migration_sql(connection: sqlite3.Connection, version: int) -> None:
+    """Execute one catalog migration canonical statements in the caller transaction.
+
+    Split-execution (rather than executescript) preserves a surrounding
+    BEGIN IMMEDIATE so the whole migration stays atomic. Shared by the C2.1
+    test-guarded runner and the C2.2 fenced offline runner; behavior stays
+    identical for both callers.
+    """
+    for statement in MIGRATION_SQL[version].split(";"):
+        if statement.strip():
+            connection.execute(statement)
+
+
 def _adopt_legacy_rows(connection: sqlite3.Connection) -> None:
     article_rows = connection.execute(
         "SELECT fingerprint, title, url, source, topic, score, sent_at, delivery_date FROM sent_articles"
@@ -267,9 +280,7 @@ def run_catalog_migrations(
     connection.execute("BEGIN IMMEDIATE")
     try:
         for version in pending:
-            for statement in MIGRATION_SQL[version].split(";"):
-                if statement.strip():
-                    connection.execute(statement)
+            _apply_migration_sql(connection, version)
             _record_migration_to(connection, version, app_version)
         connection.commit()
     except Exception:
