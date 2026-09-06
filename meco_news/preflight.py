@@ -249,6 +249,29 @@ def healthcheck(
         report["error_class"] = type(exc).__name__
         return False, report
     report["status"] = status
+    # C1.3: active maintenance is unsafe even if every other probe passes.
+    # The check stays read-only (marker file only) and never short-circuits,
+    # so simultaneous failures still preserve all stable reasons below.
+    maintenance_held, maintenance_info = maintenance.is_maintenance_held(path.resolve())
+    if maintenance_held:
+        report["healthy"] = False
+        report["reasons"].append("maintenance_in_progress")
+        report["maintenance"] = {
+            "held": True,
+            "owner": maintenance_info.get("owner"),
+            "scope": maintenance_info.get("scope"),
+        }
+    # C1.3: a state schema the app cannot interpret is unsafe, including a
+    # newer schema (forward migration without app support) and an older one
+    # (pending migration that normal startup must not apply implicitly).
+    if status.get("schema_version") != CURRENT_SCHEMA_VERSION:
+        report["healthy"] = False
+        report["reasons"].append("incompatible_schema")
+        report["schema"] = {
+            "ok": False,
+            "actual": status.get("schema_version"),
+            "expected": CURRENT_SCHEMA_VERSION,
+        }
     if status.get("integrity") != "ok":
         report["healthy"] = False
         report["reasons"].append("db_corrupt")
@@ -306,10 +329,50 @@ def healthcheck(
         except (TypeError, ValueError):
             report["healthy"] = False
             report["reasons"].append("invalid_last_success")
+    elif not active and not latest:
+        # C1.3: zero deliveries ever completed. A fresh install before its
+        # first delivery window is healthy (not-yet-due); past the window
+        # with no success it is overdue, even with no prior success to age.
+        # A broken clock or config must not flip health on its own, so a
+        # failed due computation is reported without failing health.
+        try:
+            zone = get_timezone(str(getattr(config, "timezone", "Asia/Jakarta") or "Asia/Jakarta"))
+            now_local = now.astimezone(zone)
+            hour_text, _, minute_text = str(getattr(config, "delivery_time", "07:00") or "07:00").partition(":")
+            due_today = now_local.replace(
+                hour=int(hour_text), minute=int(minute_text), second=0, microsecond=0
+            )
+        except (AttributeError, KeyError, TypeError, ValueError, OSError):
+            report["due"] = {"known": False, "reason": "due_computation_unavailable"}
+        else:
+            report["due"] = {
+                "known": True,
+                "due": now_local >= due_today,
+                "delivery_time": getattr(config, "delivery_time", "07:00"),
+                "timezone": getattr(config, "timezone", "Asia/Jakarta"),
+            }
+            if now_local >= due_today:
+                report["healthy"] = False
+                report["reasons"].append("overdue_delivery")
     # C3.5: all_sources_failed retry exhaustion is unhealthy (distinct from completed_empty)
     if active.get("state") == "retry_wait" and "all_sources_failed" in str(active.get("terminal_error", "")):
         # Exhausted source retries are unsafe even though no Telegram chunk is
         # currently ambiguous; they must not look like a healthy idle retry.
         report["healthy"] = False
         report["reasons"].append("all_sources_failed_retry_exhausted")
+    # C1.3: a head chunk stuck in retry_wait past the configured retry budget
+    # is exhausted, not waiting. Transient retries with attempts left stay
+    # healthy so normal backoff does not flap monitoring; delivery-level
+    # collection retries without chunks surface via all_sources_failed or
+    # overdue_delivery instead.
+    max_attempts = int(getattr(getattr(config, "retry_policy", None), "max_attempts", 4))
+    chunk = status.get("active_chunk") or {}
+    if chunk.get("state") == "retry_wait" and int(chunk.get("attempt_count", 0)) >= max_attempts:
+        report["healthy"] = False
+        report["reasons"].append("chunk_retry_exhausted")
+        report["retry"] = {
+            "exhausted": True,
+            "attempt_count": chunk.get("attempt_count", 0),
+            "max_attempts": max_attempts,
+        }
     return bool(report["healthy"]), report

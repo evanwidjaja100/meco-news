@@ -13,8 +13,8 @@ python -m meco_news --healthcheck --max-heartbeat-age 180 --json
 
 Alert policy:
 
-- critical: no successful run for 26 hours, state corruption/migration failure, or all sources failed after retries;
-- high: terminal or ambiguous Telegram delivery;
+- critical: no successful run for 26 hours (including a missed first window with zero history), state corruption/migration failure/incompatible schema, all sources failed after retries, or chunk retries exhausted past the configured budget;
+- high: terminal or ambiguous Telegram delivery, or the maintenance guard held (`maintenance_in_progress`);
 - warning: more than half of sources fail for two runs, heartbeat is older than three minutes, or state disk space is below 1 GiB/10%.
 
 Treat `needs_attention` and `ambiguous` as operator work, not a reason to use `--force`. Preserve the run ID, delivery ID, chunk ID, status JSON, logs, and relevant Telegram evidence before resolving or rolling back.
