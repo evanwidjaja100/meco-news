@@ -50,6 +50,8 @@ python -m meco_news --backup backups\
 
 Dry-run performs collection and ranking but does not create, migrate, write, lease, send, schedule, or create a log/status file. When a state database already exists it reads history read-only; use `--ignore-history` for an intentional all-candidate preview. Invalid option combinations fail with exit code 2 before state or network initialization.
 
+Preflight (`--preflight`) is read-only: it never creates, migrates, writes, or WAL/SHM-sidecars the state database, and `ready` is the pure conjunction of the mandatory checks (timezone, runtime, state filesystem, maintenance, database, lease, secrets, plus online checks when requested). Exit codes are deterministic for multiple failures, highest precedence first: 9 unsupported Python (`>=3.12,<3.15` required), 4 state filesystem, 8 maintenance in progress, 5 schema (missing ledger objects, checksum mismatch, migration-required N-1, or newer N+1), 6 active lease, 3 secrets, 7 online. A missing database reports `missing`/`not_yet_created` and stays ready; anything else non-compatible is fail-closed.
+
 ## Configuration
 
 Edit `config/watchlist.json` for sources, queries, topics, scoring, limits, delivery time, and retry policy. Strict typed validation rejects unknown keys and unsafe values. `MECO_CONFIG` and `STATE_DB` can relocate config/state. Configuration is revalidated on daemon cycles; a frozen delivery does not change when configuration changes.

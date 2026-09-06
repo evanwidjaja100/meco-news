@@ -9,8 +9,9 @@ import shutil
 import sqlite3
 from typing import Any
 
-from . import __version__
+from . import __version__, inspection, maintenance
 from .config import AppConfig
+from .inspection import SUPPORTED_PYTHON_RANGE
 from .migrations import CURRENT_SCHEMA_VERSION
 from .network import BoundedHTTPClient
 from .storage import StateStore, StateError
@@ -25,6 +26,8 @@ PREFLIGHT_STATE = 4
 PREFLIGHT_SCHEMA = 5
 PREFLIGHT_LEASE = 6
 PREFLIGHT_ONLINE = 7
+PREFLIGHT_MAINTENANCE = 8
+PREFLIGHT_RUNTIME = 9
 MIN_FREE_BYTES = 1 * 1024 * 1024 * 1024
 
 
@@ -54,6 +57,13 @@ def _secret_status() -> tuple[bool, str]:
 
 
 def run_preflight(config: AppConfig, *, online: bool = False, state_path: str | Path | None = None) -> tuple[int, dict[str, Any]]:
+    """Offline readiness verdict with deterministic exit-code precedence.
+
+    ready is the pure conjunction of the mandatory checks (timezone, runtime, state
+    filesystem, maintenance, database, lease, secrets, plus the online checks when
+    requested). Exit precedence for multiple failures: runtime (9) > state (4) >
+    maintenance (8) > schema (5) > lease (6) > secret (3) > online (7).
+    """
     path = Path(state_path or _state_path())
     report: dict[str, Any] = {
         "ready": True,
@@ -70,6 +80,11 @@ def run_preflight(config: AppConfig, *, online: bool = False, state_path: str | 
         report["checks"]["timezone"] = {"ok": False, "reason": "timezone_unavailable"}
         report["ready"] = False
 
+    runtime_ok, runtime_version = inspection.check_python_version()
+    report["checks"]["runtime"] = {"ok": runtime_ok, "version": runtime_version, "supported": SUPPORTED_PYTHON_RANGE}
+    if not runtime_ok:
+        report["ready"] = False
+
     parent = path.parent.resolve()
     disk_ok = parent.exists() and os.access(parent, os.W_OK)
     total_bytes = 0
@@ -80,6 +95,7 @@ def run_preflight(config: AppConfig, *, online: bool = False, state_path: str | 
     except OSError:
         free_bytes = 0
     state_ok = bool(disk_ok and _disk_sufficient(free_bytes, total_bytes))
+    wal_probe = inspection.probe_wal_capability(parent)
     report["checks"]["state_filesystem"] = {
         "ok": state_ok,
         "directory": str(parent),
@@ -87,6 +103,7 @@ def run_preflight(config: AppConfig, *, online: bool = False, state_path: str | 
         "minimum_free_bytes": MIN_FREE_BYTES,
         "minimum_free_ratio": 0.10,
         "database_exists": path.exists(),
+        "wal": {"ok": wal_probe.ok, "journal_mode": wal_probe.journal_mode, "reason": wal_probe.reason},
     }
     if not state_ok:
         report["ready"] = False
@@ -96,37 +113,77 @@ def run_preflight(config: AppConfig, *, online: bool = False, state_path: str | 
     if not secret_ok:
         report["ready"] = False
 
-    if path.exists():
-        try:
-            with StateStore(path, readonly=True) as store:
-                integrity = store.integrity_check()
-                report["schema_version"] = store.schema_version
-                report["application_version"] = __version__
-                report["checks"]["database"] = {
-                    "ok": integrity == "ok" and store.schema_version == CURRENT_SCHEMA_VERSION,
-                    "integrity": integrity,
-                    "schema_version": store.schema_version,
-                }
-                # ponytail: fail-closed — N-1 (migration_required) and N+1 (newer_incompatible) both set ready=False
-                if integrity != "ok" or store.schema_version != CURRENT_SCHEMA_VERSION:
-                    report["ready"] = False
-                report["status"] = store.status_snapshot()
-                leases = {
-                    "delivery": report["status"].get("lease"),
-                    "scheduler": report["status"].get("scheduler_lease"),
-                }
-                active_leases = [
-                    scope for scope, lease in leases.items() if lease and str(lease.get("expires_at", "")) > datetime.now(UTC).isoformat()
-                ]
-                if active_leases:
-                    lease_busy = True
-                    report["checks"]["lease"] = {"ok": False, "reason": "active_lease", "scopes": active_leases}
-                    report["ready"] = False
-        except (OSError, StateError, RuntimeError, sqlite3.Error) as exc:
-            report["checks"]["database"] = {"ok": False, "reason": type(exc).__name__}
-            report["ready"] = False
+    maintenance_held, maintenance_info = maintenance.is_maintenance_held(path)
+    if maintenance_held:
+        report["checks"]["maintenance"] = {
+            "ok": False,
+            "reason": "maintenance_in_progress",
+            "owner": maintenance_info.get("owner"),
+            "scope": maintenance_info.get("scope"),
+        }
+        report["checks"]["database"] = {"ok": False, "reason": "maintenance_in_progress"}
+        report["ready"] = False
     else:
-        report["checks"]["database"] = {"ok": True, "integrity": "not_yet_created", "schema_version": 0}
+        report["checks"]["maintenance"] = {
+            "ok": True,
+            "held": False,
+            "stale_marker": bool(maintenance_info.get("stale_marker")),
+        }
+        inspection_result = inspection.inspect_state(path)
+        classification = inspection_result.classification
+        if classification == "missing":
+            report["checks"]["database"] = {
+                "ok": True,
+                "integrity": "not_yet_created",
+                "schema_version": 0,
+                "classification": classification,
+            }
+        elif classification != "compatible":
+            report["schema_version"] = inspection_result.schema_version
+            report["checks"]["database"] = {
+                "ok": False,
+                "reason": inspection_result.detail,
+                "classification": classification,
+                "integrity": inspection_result.integrity,
+                "schema_version": inspection_result.schema_version,
+            }
+            report["ready"] = False
+        else:
+            try:
+                with StateStore(path, readonly=True) as store:
+                    integrity = store.integrity_check()
+                    report["schema_version"] = store.schema_version
+                    report["application_version"] = __version__
+                    report["checks"]["database"] = {
+                        "ok": integrity == "ok" and store.schema_version == CURRENT_SCHEMA_VERSION,
+                        "integrity": integrity,
+                        "schema_version": store.schema_version,
+                        "classification": classification,
+                    }
+                    # ponytail: fail-closed - N-1 (migration_required) and N+1 (newer_incompatible) both set ready=False
+                    if integrity != "ok" or store.schema_version != CURRENT_SCHEMA_VERSION:
+                        report["ready"] = False
+                    report["status"] = store.status_snapshot()
+                    leases = {
+                        "delivery": report["status"].get("lease"),
+                        "scheduler": report["status"].get("scheduler_lease"),
+                    }
+                    active_leases = [
+                        scope
+                        for scope, lease in leases.items()
+                        if lease and str(lease.get("expires_at", "")) > datetime.now(UTC).isoformat()
+                    ]
+                    if active_leases:
+                        lease_busy = True
+                        report["checks"]["lease"] = {"ok": False, "reason": "active_lease", "scopes": active_leases}
+                        report["ready"] = False
+            except (OSError, StateError, RuntimeError, sqlite3.Error) as exc:
+                report["checks"]["database"] = {
+                    "ok": False,
+                    "reason": type(exc).__name__,
+                    "classification": classification,
+                }
+                report["ready"] = False
 
     if online and secret_ok:
         try:
@@ -154,8 +211,12 @@ def run_preflight(config: AppConfig, *, online: bool = False, state_path: str | 
             report["ready"] = False
 
     if not report["ready"]:
+        if not runtime_ok:
+            return PREFLIGHT_RUNTIME, report
         if not state_ok:
             return PREFLIGHT_STATE, report
+        if maintenance_held:
+            return PREFLIGHT_MAINTENANCE, report
         if path.exists() and not report["checks"].get("database", {}).get("ok", False):
             return PREFLIGHT_SCHEMA, report
         if lease_busy:
