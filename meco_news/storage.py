@@ -106,7 +106,12 @@ class StateStore:
             if not self.path or not self.path.exists():
                 raise FileNotFoundError(str(self.path))
             # URI mode keeps a dry-run from creating or migrating a database.
-            self.connection = sqlite3.connect(f"file:{self.path.resolve().as_posix()}?mode=ro", uri=True, timeout=busy_timeout_ms / 1000)
+            # immutable=1 additionally keeps the read path from creating -shm/-wal
+            # sidecars; verify-after-write callers hold no concurrent writer, and live
+            # readers (preflight/health/status) are best-effort point-in-time checks.
+            self.connection = sqlite3.connect(
+                f"file:{self.path.resolve().as_posix()}?mode=ro&immutable=1", uri=True, timeout=busy_timeout_ms / 1000
+            )
         else:
             database_path = ":memory:" if memory_only else self.path
             if database_path is None:
