@@ -15,6 +15,7 @@ from collections.abc import Iterable, Mapping, Sequence
 
 from . import __version__
 from .migrations import CURRENT_SCHEMA_VERSION, SCHEMA_SQL, migration_checksum
+from .observability import redact as _redact_log_value
 from .models import NewsItem, canonical_url
 
 
@@ -81,8 +82,10 @@ def _iso(value: datetime | None = None) -> str:
 
 
 def _sanitize_error(value: object, limit: int = 1000) -> str:
-    text = " ".join(str(value).split())
-    return text.replace("\x00", "")[:limit]
+    cleaned = _redact_log_value(value, limit=limit)
+    if not isinstance(cleaned, str):
+        cleaned = " ".join(str(cleaned).split())[:limit]
+    return cleaned
 
 
 def _key(value: str) -> str:

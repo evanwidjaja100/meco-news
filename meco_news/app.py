@@ -23,7 +23,7 @@ import hashlib
 from .backup import create_backup, restore_backup
 from .collectors import CollectionResult, collect_all
 from .config import AppConfig, ConfigurationError, load_config, load_dotenv
-from .observability import configure_logging, emit_event
+from .observability import AttemptLifecycle, configure_logging, emit_event
 from .preflight import healthcheck, looks_placeholder, run_preflight
 from .ranking import deduplicate, filter_fresh, rank_item, select_digest
 from .storage import StateError, StateStore
@@ -104,6 +104,7 @@ def _retry_delay(config: Mapping[str, Any], attempt: int, *, retry_after: int = 
     return timedelta(seconds=max(retry_after, min(maximum, base * (2 ** max(0, attempt - 1)) + deterministic_jitter)))
 
 
+# C1.4: dry-run previews are human diagnostics on stderr; stdout stays JSON-parseable.
 def _print_dry_run(
     items: list[Any],
     raw_count: int,
@@ -112,23 +113,24 @@ def _print_dry_run(
     exclusions: Mapping[str, int] | None = None,
     collection: CollectionResult | None = None,
 ) -> None:
-    print(f"Collected {raw_count} raw items; selected {len(items)} unsent stories.\n")
+    print(f"Collected {raw_count} raw items; selected {len(items)} unsent stories.\n", file=sys.stderr)
     if collection:
         print(
-            f"Sources succeeded: {collection.successful_sources}; failed: {collection.failed_sources}; outcome: {'all_sources_failed' if collection.all_sources_failed else 'healthy_or_degraded'}"
+            f"Sources succeeded: {collection.successful_sources}; failed: {collection.failed_sources}; outcome: {'all_sources_failed' if collection.all_sources_failed else 'healthy_or_degraded'}",
+            file=sys.stderr,
         )
     if exclusions:
-        print("Freshness exclusions: " + ", ".join(f"{key}={value}" for key, value in sorted(exclusions.items())))
+        print("Freshness exclusions: " + ", ".join(f"{key}={value}" for key, value in sorted(exclusions.items())), file=sys.stderr)
     for index, item in enumerate(items, 1):
         published = item.published_at.isoformat() if item.published_at else "unknown date"
-        print(f"{index}. [{item.score}] {item.title}")
-        print(f"   {item.topic_label} | {item.source} | {published}")
-        print(f"   matches: {', '.join(item.matches) or 'none'}")
-        print(f"   {item.url}\n")
+        print(f"{index}. [{item.score}] {item.title}", file=sys.stderr)
+        print(f"   {item.topic_label} | {item.source} | {published}", file=sys.stderr)
+        print(f"   matches: {', '.join(item.matches) or 'none'}", file=sys.stderr)
+        print(f"   {item.url}\n", file=sys.stderr)
     if issues:
-        print("Source issues:")
+        print("Source issues:", file=sys.stderr)
         for issue in issues:
-            print(f"- {issue}")
+            print(f"- {issue}", file=sys.stderr)
 
 
 def _collect_rank_select(
@@ -300,6 +302,13 @@ def run_once(
             # content is never regenerated after preparation.
             if active.state in {"collecting", "retry_wait"} and not store.due_chunks(active.delivery_id):
                 store.heartbeat_lease(LEASE_SCOPE, owner_id, config.lease_ttl_seconds)
+                collection_attempt = AttemptLifecycle(
+                    kind="collection",
+                    run_id=run_id,
+                    attempt_id=f"{run_id}:collection:{active.delivery_id}",
+                    delivery_id=active.delivery_id,
+                    generation=active.generation,
+                )
                 collection = collect_all(config)
                 store.record_source_results(active.delivery_id, collection.source_results)
                 if collection.all_sources_failed:
@@ -309,6 +318,12 @@ def run_once(
                     )
                     if not retry_enabled or retry_number >= config.retry_policy.max_attempts:
                         store.fail_delivery(active.delivery_id, "all_sources_failed_retry_exhausted")
+                        collection_attempt.finalize(
+                            "terminal",
+                            outcome="failed_terminal",
+                            error_class="all_sources_failed",
+                            retry_number=retry_number,
+                        )
                         emit_event(
                             "run_terminal",
                             run_id=run_id,
@@ -321,6 +336,13 @@ def run_once(
                     else:
                         next_attempt = datetime.now(UTC) + _retry_delay(config, retry_number)
                         store.set_collection_retry(active.delivery_id, next_attempt_at=next_attempt, error="all_sources_failed")
+                        collection_attempt.finalize(
+                            "retryable",
+                            outcome="retry_wait",
+                            error_class="all_sources_failed",
+                            retry_number=retry_number,
+                            next_attempt_at=next_attempt.isoformat(),
+                        )
                         emit_event(
                             "run_terminal",
                             run_id=run_id,
@@ -367,6 +389,11 @@ def run_once(
                     omitted_count=len(built.omitted_items),
                     freshness_exclusions=exclusions,
                 )
+                collection_attempt.finalize(
+                    "success",
+                    outcome="collected",
+                    selected_count=len(built.included_items),
+                )
 
             client = TelegramClient(
                 os.getenv("TELEGRAM_BOT_TOKEN", ""),
@@ -408,6 +435,13 @@ def run_once(
                     return RunOutcome(1, "retry_wait")
                 for chunk in chunks:
                     _, attempt_number = store.begin_chunk_attempt(chunk.chunk_id, run_id=run_id, owner_id=owner_id)
+                    chunk_attempt = AttemptLifecycle(
+                        kind="chunk",
+                        run_id=run_id,
+                        attempt_id=f"{run_id}:chunk:{chunk.chunk_id}:{attempt_number}",
+                        delivery_id=delivery_id,
+                        chunk_id=chunk.chunk_id,
+                    )
                     try:
                         message_id = client.send_html(chunk.payload)
                     except TelegramSendError as exc:
@@ -418,6 +452,12 @@ def run_once(
                                 "ambiguous",
                                 run_id=run_id,
                                 owner_id=owner_id,
+                                error_class=exc.reason_code,
+                                error_text=str(exc),
+                            )
+                            chunk_attempt.finalize(
+                                "ambiguous",
+                                outcome="needs_attention",
                                 error_class=exc.reason_code,
                                 error_text=str(exc),
                             )
@@ -442,6 +482,13 @@ def run_once(
                                 error_text=str(exc),
                                 next_attempt_at=next_attempt,
                             )
+                            chunk_attempt.finalize(
+                                "retryable",
+                                outcome="retry_wait",
+                                error_class=exc.reason_code,
+                                error_text=str(exc),
+                                next_attempt_at=next_attempt.isoformat(),
+                            )
                             emit_event(
                                 "run_terminal",
                                 run_id=run_id,
@@ -458,6 +505,12 @@ def run_once(
                             "rejected_terminal",
                             run_id=run_id,
                             owner_id=owner_id,
+                            error_class=exc.reason_code,
+                            error_text=str(exc),
+                        )
+                        chunk_attempt.finalize(
+                            "terminal",
+                            outcome="failed_terminal",
                             error_class=exc.reason_code,
                             error_text=str(exc),
                         )
@@ -483,6 +536,11 @@ def run_once(
                             error_class=type(exc).__name__,
                             error_text="unexpected Telegram client failure",
                         )
+                        chunk_attempt.finalize(
+                            "exception",
+                            outcome="needs_attention",
+                            error_class=type(exc).__name__,
+                        )
                         emit_event(
                             "run_terminal",
                             run_id=run_id,
@@ -494,6 +552,7 @@ def run_once(
                         )
                         return RunOutcome(1, "needs_attention")
                     store.finish_chunk(chunk.chunk_id, "accepted", run_id=run_id, owner_id=owner_id, telegram_message_id=message_id)
+                    chunk_attempt.finalize("success", outcome="accepted", telegram_message_id=message_id)
         except Exception as exc:
             current = store.delivery(delivery_id) if delivery_id is not None else None
             if current and current.state not in {"needs_attention", "retry_wait", "completed", "completed_empty", "failed_terminal"}:
@@ -844,7 +903,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             emit_event("restore_failed", level=logging.ERROR, outcome="failed_terminal", error_class=type(exc).__name__)
             return 1
-        print(f"Restored {target}")
+        print(f"Restored {target}", file=sys.stderr)
         return 0
     if args.resolve_chunk is not None:
         try:
@@ -881,13 +940,13 @@ def main(argv: list[str] | None = None) -> int:
             if args.discover_chat:
                 chats = client.discover_chats()
                 if not chats:
-                    print("No chats found. Open the bot in Telegram, send /start, then try again.")
+                    print("No chats found. Open the bot in Telegram, send /start, then try again.", file=sys.stderr)
                     return 1
                 print(json.dumps(chats, indent=2, ensure_ascii=False))
                 return 0
             identity = client.get_me()
             client.send_html("<b>MECO Market Watch test successful.</b>\nTelegram delivery is configured.")
-            print(f"Test delivered by @{identity.get('username', identity.get('first_name', 'bot'))}.")
+            print(f"Test delivered by @{identity.get('username', identity.get('first_name', 'bot'))}.", file=sys.stderr)
             return 0
         except Exception as exc:
             emit_event("telegram_test_failed", level=logging.ERROR, outcome="failed_terminal", error_class=type(exc).__name__)
