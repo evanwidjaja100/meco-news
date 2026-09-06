@@ -17,6 +17,7 @@ import re
 from typing import Any
 from collections.abc import Iterator, Mapping
 
+from .observability import redact as _redact_log_value
 from .timezones import get_timezone
 from .urls import URLPolicyError, validate_url
 
@@ -248,13 +249,12 @@ class AppConfig(Mapping[str, Any]):
         return copy.deepcopy(self._raw)
 
     def redacted(self) -> dict[str, Any]:
-        value = self.as_dict()
-        # The JSON configuration contains no secrets today, but this keeps
-        # config-show safe if a future non-secret credential reference is added.
-        for key in list(value):
-            if any(secret in key.casefold() for secret in ("token", "secret", "password", "authorization")):
-                value[key] = "<redacted>"
-        return value
+        # C1.4: recursive redaction through the shared log sanitizer so a
+        # future nested credential reference can never leak via config-show.
+        cleaned = _redact_log_value(self.as_dict())
+        if not isinstance(cleaned, dict):
+            return {}
+        return {str(key): item for key, item in cleaned.items()}
 
     @property
     def config_hash(self) -> str:
