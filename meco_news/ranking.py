@@ -327,8 +327,7 @@ def deduplicate_with_stats(
             # candidate likewise; never call them confirmed duplicates.
             unprocessed.extend(candidates[position:])
             break
-        if not duplicate:
-            clustered.append(item)
+        clustered.append(item)
     clustered.extend(unprocessed)
     clustered.extend(exact[max_candidates:])
     result = sorted(clustered, key=_quality_key)
