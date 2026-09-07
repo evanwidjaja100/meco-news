@@ -9,8 +9,10 @@ import html
 import json
 import logging
 import multiprocessing as mp
+import os
 import pickle
 import re
+import sys
 from queue import Empty, Queue
 import threading
 import time
@@ -22,6 +24,7 @@ import xml.etree.ElementTree as ET
 from .config import AppConfig, CollectionLimits, NetworkPolicy
 from .models import NewsItem
 from .network import NetworkError, fetch_bytes
+from .observability import configure_logging
 from .urls import URLPolicyError, validate_url
 import contextlib
 
@@ -659,6 +662,13 @@ def _source_process_entry(
     The parent owns the deadline and the process lifecycle.  Only a bounded,
     typed result crosses the pipe; exception text is never used as a protocol.
     """
+    # Spawned workers start without the parent logging configuration;
+    # without this, failures fall through to logging.lastResort and reach
+    # stderr raw, traceback and secrets included. Install the redacting
+    # handler so worker diagnostics are sanitized like everywhere else.
+    # Never a file: children must not rotate the parent log.
+    if not logging.getLogger().handlers:
+        configure_logging(level=os.getenv("LOG_LEVEL", "WARNING"), stream=sys.stderr)
 
     try:
         result = function(*args, **kwargs)

@@ -69,6 +69,6 @@
   "spawned_worker_log_redaction": {
     "process_exit": 0,
     "stderr_has_traceback": true,
-    "synthetic_password_visible_in_stderr": true
+    "synthetic_password_visible_in_stderr": false
   }
 }
