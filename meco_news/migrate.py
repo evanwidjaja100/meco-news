@@ -5,11 +5,10 @@ offline half: a pre-migration artifact (backup plus manifest) created and
 verified before BEGIN, and a fenced runner that applies the immutable catalog
 from migrations.py over a raw SQLite connection.
 
-The public migrate command stays disabled until C2.2e wires this runner to
-audited CLI grammar. StateStore still refuses migration-required opens, and
-create_backup still refuses them (it opens StateStore writable), so this
-module never auto-migrates behind a live runtime: callers must first hold a
-live MaintenanceContext for the same database path and scope.
+The public migrate command exposes only the audited current-schema target.
+StateStore still refuses migration-required opens, so this module never
+auto-migrates behind a live runtime: callers must first hold a live
+MaintenanceContext for the same database path and scope.
 """
 
 from __future__ import annotations
@@ -17,7 +16,9 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import tempfile
 import uuid
+import contextlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, UTC
@@ -25,8 +26,9 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from .maintenance import MaintenanceContext, assert_maintenance_fence
-from .migrations import CURRENT_SCHEMA_VERSION, ledger_contiguity_issue, migration_checksum, verify_catalog
+from .backup import _reserve_file
+from .maintenance import MaintenanceContext, assert_maintenance_fence, ensure_database_fence
+from .migrations import CURRENT_SCHEMA_VERSION, LEGACY_FENCE_TRIGGERS, ledger_contiguity_issue, migration_checksum, verify_catalog
 from .storage import (
     StateError,
     _adopt_legacy_rows,
@@ -34,6 +36,7 @@ from .storage import (
     _apply_schema_to,
     _ledger_versions,
     _record_migration_to,
+    _configure_authoritative_connection,
 )
 
 MANIFEST_SUFFIX = ".manifest.json"
@@ -41,7 +44,9 @@ PRE_MIGRATE_MARKER = ".pre-migrate-"
 
 # Mirrors the completeness check in StateStore._ensure_schema: a database is
 # current only when its ledger is exactly 1..CURRENT with valid checksums,
-# every v2 table survived, and the v3 deliveries column is present.
+# every v2 table survived, the v3 deliveries column is present,
+# the v4 legacy old-writer fence triggers are installed, and the v5 durable
+# retry/force/audit structures are present.
 REQUIRED_CURRENT_TABLES = frozenset(
     {
         "run_leases",
@@ -52,6 +57,9 @@ REQUIRED_CURRENT_TABLES = frozenset(
         "article_history",
         "source_results",
         "delivery_resolutions",
+        "state_transitions",
+        "force_audits",
+        "maintenance_fences",
     }
 )
 
@@ -81,7 +89,10 @@ def _sha256_file(path: Path) -> str:
 
 
 def _ro_connection(path: Path) -> sqlite3.Connection:
-    uri = f"file:{path.resolve().as_posix()}?mode=ro&immutable=1"
+    # Migration runs under the exclusive maintenance guard.  A normal
+    # read-only URI is therefore safe and remains WAL-aware; immutable mode
+    # would silently ignore a committed sidecar.
+    uri = f"file:{path.resolve().as_posix()}?mode=ro"
     connection = sqlite3.connect(uri, uri=True, timeout=5.0)
     connection.row_factory = sqlite3.Row
     return connection
@@ -120,6 +131,60 @@ def _read_source_state(path: Path) -> tuple[str, int]:
         connection.close()
 
 
+def _fsync_directory(directory: Path) -> None:
+    if os.name == "nt":
+        return
+    try:
+        fd = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _write_manifest_atomic(path: Path, payload: Mapping[str, Any]) -> None:
+    """Publish a manifest only after its complete contents are durable."""
+
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(dict(payload), handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+        _fsync_directory(path.parent)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            Path(temporary).unlink(missing_ok=True)
+        raise
+
+
+def _reserve_migration_artifacts(source: Path, stamp: str) -> tuple[Path, Path]:
+    """Reserve a backup and its manifest as one unpublished artifact pair.
+
+    Both names are claimed with ``O_CREAT|O_EXCL`` before SQLite is opened.
+    A timestamp alone is not an identity: two migration processes can start in
+    the same second, and a pre-existing manifest must never be overwritten.
+    """
+
+    source.parent.mkdir(parents=True, exist_ok=True)
+    for counter in range(1000):
+        suffix = f"-{counter}" if counter else ""
+        backup = source.with_name(f"{source.name}.pre-migrate-{stamp}{suffix}.bak")
+        manifest = backup.with_suffix(backup.suffix + MANIFEST_SUFFIX)
+        if not _reserve_file(backup):
+            continue
+        if _reserve_file(manifest):
+            return backup, manifest
+        with contextlib.suppress(OSError):
+            backup.unlink(missing_ok=True)
+    raise StateError("could not reserve a unique pre-migration artifact")
+
+
 def create_migration_manifest(db_path: str | Path, *, app_version: str, config_hash: str) -> MigrationBackup:
     """Copy the source database and describe it in a manifest; change nothing.
 
@@ -135,73 +200,74 @@ def create_migration_manifest(db_path: str | Path, *, app_version: str, config_h
     db_sha = _sha256_file(source)
     integrity, schema_version = _read_source_state(source)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    backup = source.with_name(f"{source.name}.pre-migrate-{stamp}.bak")
-    counter = 1
-    while backup.exists() or backup.with_suffix(backup.suffix + MANIFEST_SUFFIX).exists():
-        backup = source.with_name(f"{source.name}.pre-migrate-{stamp}-{counter}.bak")
-        counter += 1
-    backup.parent.mkdir(parents=True, exist_ok=True)
+    backup, manifest = _reserve_migration_artifacts(source, stamp)
+    published = False
     try:
-        origin = _ro_connection(source)
-    except sqlite3.Error as exc:
-        raise StateError(f"migration source cannot be opened read-only: {exc}") from exc
-    destination = sqlite3.connect(backup)
-    try:
-        with destination:
-            origin.backup(destination)
-    except sqlite3.Error as exc:
-        destination.close()
-        origin.close()
-        backup.unlink(missing_ok=True)
-        raise StateError(f"pre-migration backup failed: {exc}") from exc
+        try:
+            origin = _ro_connection(source)
+        except sqlite3.Error as exc:
+            raise StateError(f"migration source cannot be opened read-only: {exc}") from exc
+        try:
+            try:
+                destination = sqlite3.connect(backup)
+            except sqlite3.Error as exc:
+                raise StateError(f"pre-migration backup cannot be created: {exc}") from exc
+            try:
+                with destination:
+                    origin.backup(destination)
+            except sqlite3.Error as exc:
+                raise StateError(f"pre-migration backup failed: {exc}") from exc
+            finally:
+                destination.close()
+        finally:
+            origin.close()
+        try:
+            check = _ro_connection(backup)
+        except sqlite3.Error as exc:
+            raise StateError(f"pre-migration backup cannot be opened read-only: {exc}") from exc
+        try:
+            try:
+                backup_integrity = str(check.execute("PRAGMA integrity_check").fetchone()[0])
+            except sqlite3.Error as exc:
+                raise StateError(f"pre-migration backup integrity probe failed: {exc}") from exc
+        finally:
+            check.close()
+        if backup_integrity != "ok":
+            raise StateError(f"pre-migration backup integrity is not ok: {backup_integrity}")
+        backup_sha = _sha256_file(backup)
+        os.chmod(backup, 0o600)
+        payload: dict[str, Any] = {
+            "backup_id": uuid.uuid4().hex,
+            "database": source.name,
+            "backup": backup.name,
+            "db_sha256": db_sha,
+            "backup_sha256": backup_sha,
+            "integrity": integrity,
+            "schema_version": schema_version,
+            "app_version": app_version,
+            "config_hash": config_hash,
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        _write_manifest_atomic(manifest, payload)
+        published = True
+        return MigrationBackup(
+            backup=backup,
+            manifest=manifest,
+            backup_id=str(payload["backup_id"]),
+            db_sha256=db_sha,
+            backup_sha256=backup_sha,
+            integrity=integrity,
+            schema_version=schema_version,
+            app_version=app_version,
+            config_hash=config_hash,
+            created_at=str(payload["created_at"]),
+        )
     finally:
-        destination.close()
-        origin.close()
-    try:
-        check = _ro_connection(backup)
-    except sqlite3.Error as exc:
-        backup.unlink(missing_ok=True)
-        raise StateError(f"pre-migration backup cannot be opened read-only: {exc}") from exc
-    try:
-        backup_integrity = str(check.execute("PRAGMA integrity_check").fetchone()[0])
-    except sqlite3.Error as exc:
-        check.close()
-        backup.unlink(missing_ok=True)
-        raise StateError(f"pre-migration backup integrity probe failed: {exc}") from exc
-    finally:
-        check.close()
-    if backup_integrity != "ok":
-        backup.unlink(missing_ok=True)
-        raise StateError(f"pre-migration backup integrity is not ok: {backup_integrity}")
-    backup_sha = _sha256_file(backup)
-    os.chmod(backup, 0o600)
-    manifest = backup.with_suffix(backup.suffix + MANIFEST_SUFFIX)
-    payload: dict[str, Any] = {
-        "backup_id": uuid.uuid4().hex,
-        "database": source.name,
-        "backup": backup.name,
-        "db_sha256": db_sha,
-        "backup_sha256": backup_sha,
-        "integrity": integrity,
-        "schema_version": schema_version,
-        "app_version": app_version,
-        "config_hash": config_hash,
-        "created_at": datetime.now(UTC).isoformat(),
-    }
-    manifest.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.chmod(manifest, 0o600)
-    return MigrationBackup(
-        backup=backup,
-        manifest=manifest,
-        backup_id=str(payload["backup_id"]),
-        db_sha256=db_sha,
-        backup_sha256=backup_sha,
-        integrity=integrity,
-        schema_version=schema_version,
-        app_version=app_version,
-        config_hash=config_hash,
-        created_at=str(payload["created_at"]),
-    )
+        if not published:
+            with contextlib.suppress(OSError):
+                backup.unlink(missing_ok=True)
+            with contextlib.suppress(OSError):
+                manifest.unlink(missing_ok=True)
 
 
 def verify_migration_manifest(db_path: str | Path, manifest: str | Path | Mapping[str, Any]) -> dict[str, Any]:
@@ -292,7 +358,28 @@ def _is_current_and_complete(path: Path) -> bool:
             columns = {str(item[1]) for item in connection.execute("PRAGMA table_info(deliveries)").fetchall()}
         except sqlite3.Error as exc:
             raise StateError(f"migration source column probe failed: {exc}") from exc
-        return "target_snapshot" in columns
+        if "target_snapshot" not in columns:
+            return False
+        if not {
+            "retry_policy_json",
+            "retry_first_at",
+            "retry_last_at",
+            "retry_attempt_high_water",
+            "retry_deadline_at",
+            "retry_elapsed_seconds",
+            "force_operator",
+            "force_reason",
+            "predecessor_delivery_id",
+        }.issubset(columns):
+            return False
+        chunk_columns = {str(item[1]) for item in connection.execute("PRAGMA table_info(outbox_chunks)").fetchall()}
+        if not {"first_attempt_at", "last_attempt_at", "retry_deadline_at"}.issubset(chunk_columns):
+            return False
+        try:
+            fences = {str(row[0]) for row in connection.execute('SELECT name FROM sqlite_master WHERE type=\'trigger\'').fetchall()}
+        except sqlite3.Error as exc:
+            raise StateError(f"migration source trigger probe failed: {exc}") from exc
+        return set(LEGACY_FENCE_TRIGGERS) <= fences
     finally:
         connection.close()
 
@@ -332,6 +419,8 @@ def run_guarded_migrations(
             legacy = bool({"sent_articles", "runs"} & tables)
             if tables and not legacy:
                 raise StateError("schema migration ledger is absent and no legacy v1 tables were found")
+            if isinstance(connection, sqlite3.Connection):
+                _configure_authoritative_connection(connection)
             connection.execute("BEGIN IMMEDIATE")
             try:
                 _apply_schema_to(connection)
@@ -339,6 +428,8 @@ def run_guarded_migrations(
                     _adopt_legacy_rows(connection)
                 for version in range(1, CURRENT_SCHEMA_VERSION + 1):
                     _record_migration_to(connection, version, app_version)
+                assert_maintenance_fence(context, db_path=resolved)
+                ensure_database_fence(connection, context)
                 connection.commit()
             except Exception:
                 connection.rollback()
@@ -362,11 +453,18 @@ def run_guarded_migrations(
                 applied = 0
             else:
                 pending = list(range(current + 1, CURRENT_SCHEMA_VERSION + 1))
+                if isinstance(connection, sqlite3.Connection):
+                    _configure_authoritative_connection(connection)
                 connection.execute("BEGIN IMMEDIATE")
                 try:
                     for version in pending:
                         _apply_migration_sql(connection, version)
                         _record_migration_to(connection, version, app_version)
+                    # Adopt legacy rows in the same transaction so pre-fence old-writer
+                    # content survives the v4 old-writer fence (C2.2c).
+                    _adopt_legacy_rows(connection)
+                    assert_maintenance_fence(context, db_path=resolved)
+                    ensure_database_fence(connection, context)
                     connection.commit()
                 except Exception:
                     connection.rollback()

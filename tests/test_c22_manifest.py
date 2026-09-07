@@ -249,7 +249,7 @@ class TestGuardedMigrationRun(unittest.TestCase):
             _make_v2(path)
             with MaintenanceContext.acquire(path, owner="m1") as ctx:
                 applied = run_guarded_migrations(path, context=ctx, app_version="2.0.0", config_hash="abc123")
-            self.assertEqual(applied, 1)
+            self.assertEqual(applied, CURRENT_SCHEMA_VERSION - 2)
             with StateStore(path) as store:
                 self.assertEqual(store.schema_version, CURRENT_SCHEMA_VERSION)
 
@@ -520,7 +520,10 @@ class TestIsCurrentAndComplete(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "state.db"
             _make_current(path)
-            checksums = {version: migration_checksum(version) for version in (1, 2, 3)}
+            checksums = {
+                version: migration_checksum(version)
+                for version in range(1, CURRENT_SCHEMA_VERSION + 1)
+            }
             tables = [
                 "schema_migrations",
                 "run_leases",
@@ -531,6 +534,9 @@ class TestIsCurrentAndComplete(unittest.TestCase):
                 "article_history",
                 "source_results",
                 "delivery_resolutions",
+                "state_transitions",
+                "force_audits",
+                "maintenance_fences",
             ]
 
             def _handler(sql: Any, *args: Any, **kwargs: Any) -> Any:
@@ -538,7 +544,12 @@ class TestIsCurrentAndComplete(unittest.TestCase):
                 if "sqlite_master" in text:
                     return _FakeCursor([(name,) for name in tables])
                 if "schema_migrations" in text:
-                    return _FakeCursor([(str(version), checksums[version]) for version in (1, 2, 3)])
+                     return _FakeCursor(
+                         [
+                             (str(version), checksums[version])
+                             for version in range(1, CURRENT_SCHEMA_VERSION + 1)
+                         ]
+                     )
                 raise sqlite3.DatabaseError("boom")
 
             with patch.object(
@@ -554,19 +565,19 @@ class TestCreateManifestFailures(unittest.TestCase):
                 create_migration_manifest(path, app_version="2.0.0", config_hash="abc123")
             self.assertEqual(_pre_migrate_files(Path(d)), [])
 
-    def test_repeated_create_uses_counter_suffix(self) -> None:
+    def test_repeated_create_keeps_manifest_names_unique(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "state.db"
             _make_legacy_v1(path)
             first = create_migration_manifest(path, app_version="2.0.0", config_hash="abc123")
             second = create_migration_manifest(path, app_version="2.0.0", config_hash="abc123")
             self.assertNotEqual(first.backup, second.backup)
-            self.assertTrue(second.backup.name.endswith("-1.bak"))
             verify_migration_manifest(path, first.manifest)
             verify_migration_manifest(path, second.manifest)
             second.backup.unlink()
             third = create_migration_manifest(path, app_version="2.0.0", config_hash="abc123")
-            self.assertTrue(third.backup.name.endswith("-2.bak"))
+            self.assertNotEqual(third.backup, second.backup)
+            self.assertNotEqual(third.manifest, second.manifest)
             verify_migration_manifest(path, third.manifest)
 
     def test_origin_open_failure_raises_without_files(self) -> None:
@@ -825,7 +836,12 @@ class TestRunGuardedFailures(unittest.TestCase):
             try:
                 connection.execute(
                     "INSERT INTO schema_migrations(version, checksum, applied_at, app_version) VALUES (?,?,?,?)",
-                    (4, "4" * 64, "2026-01-01T00:00:00+00:00", "9.9.9"),
+                    (
+                        CURRENT_SCHEMA_VERSION + 1,
+                        "5" * 64,
+                        "2026-01-01T00:00:00+00:00",
+                        "9.9.9",
+                    ),
                 )
                 connection.commit()
             finally:

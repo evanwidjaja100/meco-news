@@ -9,7 +9,12 @@ import html
 import json
 import logging
 import multiprocessing as mp
+import os
+import pickle
 import re
+import sys
+from queue import Empty, Queue
+import threading
 import time
 from typing import Any
 from collections.abc import Callable, Iterator, Mapping
@@ -19,6 +24,7 @@ import xml.etree.ElementTree as ET
 from .config import AppConfig, CollectionLimits, NetworkPolicy
 from .models import NewsItem
 from .network import NetworkError, fetch_bytes
+from .observability import configure_logging
 from .urls import URLPolicyError, validate_url
 import contextlib
 
@@ -26,6 +32,7 @@ import contextlib
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 LOGGER = logging.getLogger(__name__)
 MAX_CONCURRENT_REQUESTS_PER_HOST = 2
+DEFAULT_IPC_FRAME_BYTES = 4 * 1024 * 1024
 
 
 class SourceDataError(ValueError):
@@ -115,12 +122,32 @@ class CollectionResult:
 def _limits(config: Mapping[str, Any] | None) -> CollectionLimits:
     if config is not None and isinstance(config, AppConfig):
         return config.limits
+    if isinstance(config, Mapping):
+        raw = config.get("limits")
+        if isinstance(raw, Mapping):
+            fields = {field.name for field in CollectionLimits.__dataclass_fields__.values()}
+            values = {name: raw[name] for name in fields if name in raw}
+            try:
+                return CollectionLimits(**values)
+            except (TypeError, ValueError):
+                return CollectionLimits()
     return CollectionLimits()
 
 
 def _network_policy(config: Mapping[str, Any] | None) -> NetworkPolicy:
     if config is not None and isinstance(config, AppConfig):
         return config.network_policy
+    if isinstance(config, Mapping):
+        raw = config.get("network_policy")
+        if isinstance(raw, Mapping):
+            try:
+                return NetworkPolicy(
+                    allowed_redirect_hosts=frozenset(raw.get("allowed_redirect_hosts", ())),
+                    same_host_redirects_only=bool(raw.get("same_host_redirects_only", True)),
+                    require_https=bool(raw.get("require_https", True)),
+                )
+            except (TypeError, ValueError):
+                return NetworkPolicy()
     return NetworkPolicy()
 
 
@@ -266,6 +293,7 @@ def _parse_xml_once(
     depth = 0
     nodes = 0
     entries_seen = 0
+    root_name: str | None = None
     results: list[NewsItem] = []
     try:
         for start in range(0, len(payload), 64 * 1024):
@@ -279,6 +307,10 @@ def _parse_xml_once(
                     continue
                 if event == "start":
                     depth += 1
+                    if depth == 1:
+                        root_name = _local_name(element.tag)
+                        if root_name not in {"rss", "feed"}:
+                            raise SourceDataError("document_type_invalid")
                     nodes += 1
                     if depth > limits.xml_depth:
                         raise SourceDataError("xml_depth_limit")
@@ -336,6 +368,8 @@ def _parse_xml_once(
         parser.close()
     except ET.ParseError as exc:
         raise SourceDataError("xml_parse_error") from exc
+    if root_name not in {"rss", "feed"}:
+        raise SourceDataError("document_type_invalid")
     return results
 
 
@@ -470,16 +504,19 @@ def _collect_rss(
                 source_id=source_id,
                 limits=chosen_limits,
             )
+        outcome = "failed" if not items and quarantine else "succeeded"
         return SourceResult(
             source_id=source_id,
             source_name=source_name,
-            outcome="succeeded",
+            outcome=outcome,
             items=items,
             duration_ms=int((time.monotonic() - started) * 1000),
             bytes_read=len(payload),
             accepted_count=len(items),
             quarantined_count=len(quarantine),
-            reason_code="item_quarantine" if quarantine else "",
+            reason_code="all_items_quarantined" if not items and quarantine else ("item_quarantine" if quarantine else ""),
+            error_class="SourceDataError" if not items and quarantine else "",
+            error="all feed entries were quarantined" if not items and quarantine else "",
         )
     except MemoryError:
         raise
@@ -512,7 +549,7 @@ def _collect_gdelt(
             data = json.loads(payload.decode("utf-8-sig"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise SourceDataError("json_parse_error") from exc
-        if not isinstance(data, dict) or not isinstance(data.get("articles", []), list):
+        if not isinstance(data, dict) or "articles" not in data or not isinstance(data.get("articles"), list):
             raise SourceDataError("json_schema_invalid")
         articles = data.get("articles", [])
         if len(articles) > _limits(config).entries_per_source:
@@ -547,16 +584,19 @@ def _collect_gdelt(
                     source_host=validated.hostname,
                 )
             )
+        outcome = "failed" if not results and quarantine else "succeeded"
         return SourceResult(
             source_id=source_id,
             source_name=source_name,
-            outcome="succeeded",
+            outcome=outcome,
             items=results,
             duration_ms=int((time.monotonic() - started) * 1000),
             bytes_read=len(payload),
             accepted_count=len(results),
             quarantined_count=quarantine,
-            reason_code="item_quarantine" if quarantine else "",
+            reason_code="all_items_quarantined" if not results and quarantine else ("item_quarantine" if quarantine else ""),
+            error_class="SourceDataError" if not results and quarantine else "",
+            error="all source entries were quarantined" if not results and quarantine else "",
         )
     except MemoryError:
         raise
@@ -575,37 +615,85 @@ def _job_host(function: Callable[..., SourceResult], args: tuple[Any, ...], sour
         return source_id.casefold()
 
 
-def _source_process_entry(connection: Any, function: Callable[..., SourceResult], args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+def _send_ipc_frame(connection: Any, payload: tuple[Any, ...], max_frame_bytes: int) -> None:
+    """Send one bounded, explicitly framed worker response."""
+
+    try:
+        frame = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+    except (MemoryError, pickle.PickleError, TypeError, ValueError) as exc:
+        frame = pickle.dumps(("exception", type(exc).__name__[:80], "worker_result_unserializable"))
+    if len(frame) > max_frame_bytes:
+        frame = pickle.dumps(("exception", "WorkerFrameTooLarge", "worker_result_too_large"))
+    connection.send_bytes(frame)
+
+
+def _start_ipc_receiver(connection: Any, max_frame_bytes: int) -> Queue[tuple[str, Any]]:
+    """Read a pipe frame off the supervisor loop.
+
+    ``Connection.poll()`` only proves that bytes are available; a malicious
+    or crashed worker can still leave an incomplete length-prefixed frame for
+    ``recv_bytes()`` to wait on.  The daemon reader lets the supervisor keep
+    enforcing the source/cycle deadline while the process is terminated and
+    the pipe is closed on timeout.
+    """
+
+    result: Queue[tuple[str, Any]] = Queue(maxsize=1)
+
+    def read() -> None:
+        try:
+            result.put(("frame", connection.recv_bytes(maxlength=max_frame_bytes)))
+        except BaseException as exc:
+            with contextlib.suppress(Exception):
+                result.put(("error", exc))
+
+    threading.Thread(target=read, name="meco-ipc-receiver", daemon=True).start()
+    return result
+
+
+def _source_process_entry(
+    connection: Any,
+    function: Callable[..., SourceResult],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    max_frame_bytes: int = DEFAULT_IPC_FRAME_BYTES,
+) -> None:
     """Run one source in an independently terminable process.
 
     The parent owns the deadline and the process lifecycle.  Only a bounded,
     typed result crosses the pipe; exception text is never used as a protocol.
     """
+    # Spawned workers start without the parent logging configuration;
+    # without this, failures fall through to logging.lastResort and reach
+    # stderr raw, traceback and secrets included. Install the redacting
+    # handler so worker diagnostics are sanitized like everywhere else.
+    # Never a file: children must not rotate the parent log.
+    if not logging.getLogger().handlers:
+        configure_logging(level=os.getenv("LOG_LEVEL", "WARNING"), stream=sys.stderr)
 
     try:
         result = function(*args, **kwargs)
         if not isinstance(result, SourceResult):
             raise TypeError("source worker returned an invalid result")
-        connection.send(("result", result))
+        _send_ipc_frame(connection, ("result", result), max_frame_bytes)
     except MemoryError:
         with contextlib.suppress(BrokenPipeError, EOFError, OSError):
-            connection.send(("memory_error",))
+            _send_ipc_frame(connection, ("memory_error",), max_frame_bytes)
     except BaseException as exc:
         reason = str(getattr(exc, "reason_code", "source_exception"))[:80] or "source_exception"
         with contextlib.suppress(BrokenPipeError, EOFError, OSError):
-            connection.send(("exception", type(exc).__name__[:80], reason))
+            _send_ipc_frame(connection, ("exception", type(exc).__name__[:80], reason), max_frame_bytes)
     finally:
         connection.close()
 
 
-def _deadline_result(source_id: str, source_name: str) -> SourceResult:
+def _deadline_result(source_id: str, source_name: str, reason_code: str = "source_deadline_exceeded") -> SourceResult:
     return SourceResult(
         source_id=source_id,
         source_name=source_name,
         outcome="failed",
-        reason_code="source_deadline_exceeded",
+        reason_code=reason_code,
         error_class="TimeoutError",
-        error="source deadline exceeded",
+        error=reason_code.replace("_", " "),
     )
 
 
@@ -642,10 +730,14 @@ def collect_all(config: Mapping[str, Any] | AppConfig) -> CollectionResult:
     started = time.monotonic()
     limits = _limits(config)
     timeout = int(config.get("request_timeout_seconds", 25))
+    # AppConfig deliberately keeps its compatibility mapping immutable.  Spawned
+    # workers need a plain, pickleable snapshot, while the worker-side helpers
+    # reconstruct the validated collection/network limits from that snapshot.
+    worker_config: Mapping[str, Any] = config.as_dict() if isinstance(config, AppConfig) else config
     jobs: list[tuple[str, str, Any, tuple[Any, ...], dict[str, Any]]] = []
     for feed_value in config.get("rss_feeds", []):
         feed = _feed_dict(feed_value)
-        jobs.append((feed["id"], feed["name"], _collect_rss, (feed, timeout), {"config": config}))
+        jobs.append((feed["id"], feed["name"], _collect_rss, (feed, timeout), {"config": worker_config}))
 
     google = config.get("google_news", {})
     if isinstance(google, Mapping) and google.get("enabled", True):
@@ -661,7 +753,7 @@ def collect_all(config: Mapping[str, Any] | AppConfig) -> CollectionResult:
                 "url": _google_news_url(query["query"], google, int(config.get("lookback_days", 3))),
                 "query_name": query["name"],
             }
-            jobs.append((feed["id"], feed["name"], _collect_rss, (feed, timeout, "google_news"), {"config": config}))
+            jobs.append((feed["id"], feed["name"], _collect_rss, (feed, timeout, "google_news"), {"config": worker_config}))
 
     gdelt = config.get("gdelt", {})
     if isinstance(gdelt, Mapping) and gdelt.get("enabled", True):
@@ -671,7 +763,7 @@ def collect_all(config: Mapping[str, Any] | AppConfig) -> CollectionResult:
                 "name": str(query_value["name"]),
                 "query": str(query_value["query"]),
             }
-            jobs.append((f"gdelt-{query['id']}", f"GDELT: {query['name']}", _collect_gdelt, (query, gdelt, timeout), {"config": config}))
+            jobs.append((f"gdelt-{query['id']}", f"GDELT: {query['name']}", _collect_gdelt, (query, gdelt, timeout), {"config": worker_config}))
     if len(jobs) > limits.max_sources:
         jobs = jobs[: limits.max_sources]
 
@@ -685,15 +777,16 @@ def collect_all(config: Mapping[str, Any] | AppConfig) -> CollectionResult:
     context = mp.get_context("spawn")
     max_workers = min(10, max(1, len(jobs)))
     pending_jobs = list(jobs)
-    active: dict[Any, tuple[Any, str, str, str]] = {}
+    active: dict[Any, tuple[Any, str, str, str, float]] = {}
+    receivers: dict[Any, Queue[tuple[str, Any]]] = {}
     host_active: dict[str, int] = {}
     results_by_id: dict[str, SourceResult] = {}
-    deadline = time.monotonic() + limits.source_deadline_seconds + 2
+    deadline = time.monotonic() + limits.cycle_deadline_seconds
     timed_out = False
 
     def cleanup_active() -> None:
         cleanup_error: RuntimeError | None = None
-        for process, (connection, _source_id, _source_name, _host) in list(active.items()):
+        for process, (connection, _source_id, _source_name, _host, _started) in list(active.items()):
             try:
                 connection.close()
                 _terminate_worker(process)
@@ -701,6 +794,7 @@ def collect_all(config: Mapping[str, Any] | AppConfig) -> CollectionResult:
                 cleanup_error = cleanup_error or exc
             finally:
                 active.pop(process, None)
+                receivers.pop(process, None)
         if cleanup_error:
             raise cleanup_error
 
@@ -723,7 +817,7 @@ def collect_all(config: Mapping[str, Any] | AppConfig) -> CollectionResult:
                     parent, child = context.Pipe(duplex=False)
                     process = context.Process(
                         target=_source_process_entry,
-                        args=(child, function, args, kwargs),
+                        args=(child, function, args, kwargs, limits.ipc_frame_bytes),
                         name=f"meco-source-{source_id}",
                     )
                     try:
@@ -734,31 +828,61 @@ def collect_all(config: Mapping[str, Any] | AppConfig) -> CollectionResult:
                         results_by_id[source_id] = _worker_failure(source_id, source_name, type(exc).__name__, "process_start_failed")
                     else:
                         child.close()
-                        active[process] = (parent, source_id, source_name, host)
+                        active[process] = (parent, source_id, source_name, host, time.monotonic())
                         host_active[host] = host_active.get(host, 0) + 1
                     started_one = True
                     break
 
             progressed = False
-            for process, (connection, source_id, source_name, host) in list(active.items()):
+            for process, (connection, source_id, source_name, host, source_started) in list(active.items()):
                 payload: tuple[Any, ...] | None = None
-                if connection.poll():
+                receiver = receivers.get(process)
+                if receiver is None and connection.poll():
+                    receiver = _start_ipc_receiver(connection, limits.ipc_frame_bytes)
+                    receivers[process] = receiver
+                if receiver is not None:
                     try:
-                        candidate = connection.recv()
-                        payload = candidate if isinstance(candidate, tuple) else ("invalid",)
-                    except (EOFError, OSError):
+                        receiver_status, receiver_value = receiver.get_nowait()
+                    except Empty:
+                        # A short bounded drain closes the normal scheduling
+                        # race where a worker has exited after sending its
+                        # complete frame but the daemon reader has not yet
+                        # been scheduled.  Never wait here while a live
+                        # worker may still be producing a partial frame.
+                        if not process.is_alive():
+                            try:
+                                receiver_status, receiver_value = receiver.get(timeout=0.05)
+                            except Empty:
+                                receiver_status, receiver_value = "pending", None
+                        else:
+                            receiver_status, receiver_value = "pending", None
+                    if receiver_status == "frame":
+                        receivers.pop(process, None)
+                        try:
+                            candidate = pickle.loads(receiver_value)
+                            payload = candidate if isinstance(candidate, tuple) else ("invalid",)
+                        except (EOFError, OSError, pickle.PickleError, TypeError, ValueError):
+                            payload = ("worker_exit",)
+                    elif receiver_status == "error":
+                        receivers.pop(process, None)
                         payload = ("worker_exit",)
-                if payload is None and process.is_alive():
-                    continue
+                if payload is None:
+                    if process.is_alive() and time.monotonic() - source_started < limits.source_deadline_seconds:
+                        continue
+                    if process.is_alive():
+                        payload = ("source_deadline", "partial_ipc" if receiver is not None else "deadline")
                 progressed = True
                 connection.close()
                 process.join(timeout=0.2)
                 if process.is_alive():
                     _terminate_worker(process)
                 active.pop(process, None)
+                receivers.pop(process, None)
                 host_active[host] -= 1
                 if payload is None or payload[0] in {"worker_exit", "invalid"}:
                     results_by_id[source_id] = _worker_failure(source_id, source_name, "WorkerProcessError", "worker_no_result")
+                elif payload[0] == "source_deadline":
+                    results_by_id[source_id] = _deadline_result(source_id, source_name, "source_deadline_exceeded")
                 elif payload[0] == "memory_error":
                     raise MemoryError("source worker exhausted memory")
                 elif payload[0] == "result" and len(payload) == 2 and isinstance(payload[1], SourceResult):
@@ -777,14 +901,15 @@ def collect_all(config: Mapping[str, Any] | AppConfig) -> CollectionResult:
                 time.sleep(min(0.02, max(0.0, deadline - time.monotonic())))
     finally:
         if timed_out:
-            for process, (connection, source_id, source_name, host) in list(active.items()):
+            for process, (connection, source_id, source_name, host, _source_started) in list(active.items()):
                 connection.close()
                 _terminate_worker(process)
                 host_active[host] -= 1
                 active.pop(process, None)
-                results_by_id[source_id] = _deadline_result(source_id, source_name)
+                receivers.pop(process, None)
+                results_by_id[source_id] = _deadline_result(source_id, source_name, "cycle_deadline_exceeded")
             for source_id, source_name, _function, _args, _kwargs in pending_jobs:
-                results_by_id[source_id] = _deadline_result(source_id, source_name)
+                results_by_id[source_id] = _deadline_result(source_id, source_name, "cycle_deadline_exceeded")
         elif active:
             cleanup_active()
 

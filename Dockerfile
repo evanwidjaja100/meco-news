@@ -1,11 +1,12 @@
-# NOTE: base image tag tracks python:3.14-slim-bookworm; production promotion must pin by immutable digest (see README).
-ARG PYTHON_IMAGE=docker.io/library/python:3.14-slim-bookworm
+# The default is an immutable multi-architecture manifest digest.  A release
+# may override this only with another reviewed digest, never with a tag.
+ARG PYTHON_IMAGE=docker.io/library/python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f
 FROM ${PYTHON_IMAGE} AS builder
 
 WORKDIR /build
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md requirements-build.lock ./
 COPY meco_news ./meco_news
-RUN python -m pip install --no-cache-dir --no-deps setuptools==75.8.0 wheel==0.45.1 \
+RUN python -m pip install --no-cache-dir --require-hashes --no-deps -r requirements-build.lock \
     && python -m pip wheel --no-cache-dir --no-deps --no-build-isolation --wheel-dir /build/wheels .
 
 FROM ${PYTHON_IMAGE} AS runtime

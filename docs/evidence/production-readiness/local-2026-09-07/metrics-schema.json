@@ -1,0 +1,40 @@
+{
+  "application_version": "2.0.0",
+  "cardinality": "fixed field set; no source/title/URL labels",
+  "counters": {
+    "chunk_attempts_total": {"labels": [], "type": "counter", "unit": "items"},
+    "chunk_duration_seconds_total": {"labels": [], "type": "counter", "unit": "seconds"},
+    "chunks_ambiguous": {"labels": [], "type": "counter", "unit": "items"},
+    "chunks_failed_terminal": {"labels": [], "type": "counter", "unit": "items"},
+    "chunks_retry_wait": {"labels": [], "type": "counter", "unit": "items"},
+    "chunks_sent": {"labels": [], "type": "counter", "unit": "items"},
+    "chunks_total": {"labels": [], "type": "counter", "unit": "items"},
+    "db_errors_total": {"labels": [], "type": "counter", "unit": "items"},
+    "dedup_budget_exhausted_total": {"labels": [], "type": "counter", "unit": "items"},
+    "dedup_pairs_total": {"labels": [], "type": "counter", "unit": "items"},
+    "dedup_postings_total": {"labels": [], "type": "counter", "unit": "items"},
+    "dedup_similarity_total": {"labels": [], "type": "counter", "unit": "items"},
+    "lease_errors_total": {"labels": [], "type": "counter", "unit": "items"},
+    "redirect_rejects_total": {"labels": [], "type": "counter", "unit": "items"},
+    "runs_completed": {"labels": [], "type": "counter", "unit": "items"},
+    "runs_completed_empty": {"labels": [], "type": "counter", "unit": "items"},
+    "runs_failed_terminal": {"labels": [], "type": "counter", "unit": "items"},
+    "runs_needs_attention": {"labels": [], "type": "counter", "unit": "items"},
+    "runs_retry_wait": {"labels": [], "type": "counter", "unit": "items"},
+    "runs_total": {"labels": [], "type": "counter", "unit": "items"},
+    "source_bytes_total": {"labels": [], "type": "counter", "unit": "items"},
+    "source_deadlines_total": {"labels": [], "type": "counter", "unit": "items"},
+    "source_failures_total": {"labels": [], "type": "counter", "unit": "items"},
+    "source_items_total": {"labels": [], "type": "counter", "unit": "items"},
+    "source_quarantined_total": {"labels": [], "type": "counter", "unit": "items"},
+    "source_requests_total": {"labels": [], "type": "counter", "unit": "items"},
+    "ssrf_rejects_total": {"labels": [], "type": "counter", "unit": "items"},
+    "unresolved_count": {"labels": [], "type": "counter", "unit": "items"},
+    "url_rejects_total": {"labels": [], "type": "counter", "unit": "items"}
+  },
+  "gauges": {
+    "disk.free_ratio": "ratio",
+    "unresolved_count": "items"
+  },
+  "schema_version": 1
+}

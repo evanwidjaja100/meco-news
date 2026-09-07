@@ -206,7 +206,7 @@ class TestC14Persistence(unittest.TestCase):
             with StateStore(path) as store:
                 lease = store.acquire_lease("delivery", "owner-1", 180)
                 self.assertTrue(lease.acquired)
-                delivery = store.create_delivery("2026-09-06", config_hash="h")
+                delivery = store.create_delivery("2026-09-06", config_hash="h", owner_id="owner-1")
                 item = NewsItem(
                     title="LPG terminal project",
                     url="https://example.com/lpg-canary",

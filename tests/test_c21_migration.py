@@ -4,8 +4,8 @@ Covers: catalog immutability/verification, exact prior/intermediate/current
 fixtures plus malformed/gap/duplicate/missing-object/mismatch/current+1,
 runtime open refusing migration-required state without changing bytes,
 catalog-runner migration under a test guard (idempotent no-op on repeat),
-and the audited but disabled public migrate command (fail-closed with
-maintenance_unavailable until C2.2).
+and the audited public migrate command, including unsupported targets and
+the current-target maintenance path.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from pathlib import Path
 from unittest.mock import patch
 import unittest
 
+import meco_news.migrate as migrate_module
 from meco_news.app import main
 from meco_news.config import load_config
 from meco_news.inspection import inspect_state
@@ -123,7 +124,7 @@ def _make_plus1(path: Path) -> None:
     _make_current(path)
     connection = sqlite3.connect(path)
     try:
-        _make_ledger(connection, [4])
+        _make_ledger(connection, [CURRENT_SCHEMA_VERSION + 1])
         connection.commit()
     finally:
         connection.close()
@@ -143,8 +144,8 @@ class TestCatalogImmutability(unittest.TestCase):
     def test_verify_catalog_ok_on_shipped_catalog(self) -> None:
         report = verify_catalog()
         self.assertTrue(report.ok, f"shipped catalog must verify: {report.issues}")
-        self.assertEqual(list(report.versions), [1, 2, 3])
-        self.assertEqual(len(report.checksums), 3)
+        self.assertEqual(list(report.versions), list(range(1, CURRENT_SCHEMA_VERSION + 1)))
+        self.assertEqual(len(report.checksums), CURRENT_SCHEMA_VERSION)
 
     def test_verify_catalog_detects_gap(self) -> None:
         entries = [e for e in catalog_entries() if e[0] != 2]
@@ -387,7 +388,7 @@ class TestCatalogRunner(unittest.TestCase):
                 applied = run_catalog_migrations(connection, guard=MigrationGuard.for_tests(), app_version="2.0.0")
             finally:
                 connection.close()
-            self.assertEqual(applied, 1)
+            self.assertEqual(applied, CURRENT_SCHEMA_VERSION - 2)
             result = inspect_state(path)
             self.assertEqual(result.classification, "compatible")
             with StateStore(path):
@@ -402,7 +403,7 @@ class TestCatalogRunner(unittest.TestCase):
                 applied = run_catalog_migrations(connection, guard=MigrationGuard.for_tests(), app_version="2.0.0")
             finally:
                 connection.close()
-            self.assertEqual(applied, 3)
+            self.assertEqual(applied, CURRENT_SCHEMA_VERSION)
             self.assertEqual(inspect_state(path).classification, "compatible")
             check = sqlite3.connect(path)
             try:
@@ -420,7 +421,7 @@ class TestCatalogRunner(unittest.TestCase):
             connection = sqlite3.connect(path)
             try:
                 first = run_catalog_migrations(connection, guard=MigrationGuard.for_tests(), app_version="2.0.0")
-                self.assertEqual(first, 1)
+                self.assertEqual(first, CURRENT_SCHEMA_VERSION - 2)
             finally:
                 connection.close()
             before = _snapshot(path)
@@ -477,15 +478,58 @@ class TestMigrateCommandFailClosed(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertIn("cannot be combined with delivery modifiers", err)
 
-    def test_migrate_fails_closed_with_maintenance_unavailable(self) -> None:
+    def test_migrate_rejects_unsupported_target_without_changes(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "state.db"
             _make_legacy_v1(path)
             before = _snapshot(path)
             code, err = self._run_main(["--migrate", "--to-version", "3"], path)
-            self.assertEqual(code, 1)
-            self.assertIn("maintenance_unavailable", err)
+            self.assertEqual(code, 2)
+            self.assertIn(f"supported schema {CURRENT_SCHEMA_VERSION}", err)
             self.assertEqual(_snapshot(path), before)
+
+    def test_migrate_applies_current_target_under_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "state.db"
+            _make_legacy_v1(path)
+            code, err = self._run_main(["--migrate", "--to-version", str(CURRENT_SCHEMA_VERSION)], path)
+            self.assertEqual(code, 0, err)
+            self.assertEqual(inspect_state(path).classification, "compatible")
+            self.assertTrue(list(path.parent.glob(f"{path.name}.pre-migrate-*.bak")))
+
+
+class TestMigrationArtifactPublication(unittest.TestCase):
+    def test_migration_artifact_reservation_skips_existing_pair_without_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "state.db"
+            _make_legacy_v1(path)
+            stamp = "20260101T000000Z"
+            existing_backup = path.with_name(f"{path.name}.pre-migrate-{stamp}.bak")
+            existing_manifest = existing_backup.with_suffix(existing_backup.suffix + ".manifest.json")
+            existing_backup.write_bytes(b"do-not-overwrite")
+            existing_manifest.write_text("{\"sentinel\":true}\n", encoding="utf-8")
+
+            class FixedDateTime:
+                @staticmethod
+                def now(tz: object) -> object:
+                    del tz
+                    return type("FixedTimestamp", (), {"strftime": lambda self, fmt: stamp, "isoformat": lambda self: "2026-01-01T00:00:00+00:00"})()
+
+            with patch.object(migrate_module, "datetime", FixedDateTime):
+                artifact = migrate_module.create_migration_manifest(path, app_version="2.0.0", config_hash="cfg")
+
+            self.assertEqual(artifact.backup.name, f"{path.name}.pre-migrate-{stamp}-1.bak")
+            self.assertEqual(existing_backup.read_bytes(), b"do-not-overwrite")
+            self.assertEqual(existing_manifest.read_text(encoding="utf-8"), "{\"sentinel\":true}\n")
+
+    def test_failed_manifest_publication_removes_reserved_pair(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "state.db"
+            _make_legacy_v1(path)
+            with patch.object(migrate_module, "_write_manifest_atomic", side_effect=OSError("publish failed")), self.assertRaises(OSError):
+                migrate_module.create_migration_manifest(path, app_version="2.0.0", config_hash="cfg")
+            self.assertEqual(list(path.parent.glob(f"{path.name}.pre-migrate-*.bak")), [])
+            self.assertEqual(list(path.parent.glob(f"{path.name}.pre-migrate-*.bak.manifest.json")), [])
 
 
 class TestDeliveryRefusesMigration(unittest.TestCase):
@@ -737,7 +781,7 @@ class TestCatalogRunnerNegativePaths(unittest.TestCase):
                 applied = run_catalog_migrations(connection, guard=MigrationGuard.for_tests(), app_version="2.0.0")
             finally:
                 connection.close()
-            self.assertEqual(applied, 3)
+            self.assertEqual(applied, CURRENT_SCHEMA_VERSION)
             check = sqlite3.connect(path)
             try:
                 state = check.execute("SELECT state FROM deliveries").fetchone()[0]
@@ -754,7 +798,7 @@ class TestCatalogRunnerNegativePaths(unittest.TestCase):
                 applied = run_catalog_migrations(connection, guard=MigrationGuard.for_tests(), app_version="2.0.0")
             finally:
                 connection.close()
-            self.assertEqual(applied, 3)
+            self.assertEqual(applied, CURRENT_SCHEMA_VERSION)
             self.assertEqual(inspect_state(path).classification, "compatible")
 
 

@@ -1,0 +1,81 @@
+{
+  "approval": {
+    "state": "not_obtained",
+    "required": ["business", "operations", "security", "release"]
+  },
+  "artifacts": [
+    {
+      "expected": "fresh separate statement/branch coverage and critical register evidence",
+      "path": "coverage-release.json",
+      "sha256": "b90bba08b99e8c70b07b58692d2dd4b0f79e072fd70b881e74040f667fd01e4b",
+      "result": "passed"
+    },
+    {
+      "expected": "critical decision branch register",
+      "path": "scripts/critical-branches.json",
+      "sha256": "9d4984dd955fc3765f0313339c32cc66c3c623851c18f54caf90516e249ff7be",
+      "result": "passed"
+    },
+    {
+      "expected": "verified wheel candidate",
+      "path": "dist/meco_news-2.0.0-py3-none-any.whl",
+      "sha256": "b85ac36f1de056567b543b0877b48199cd16f854a42b65604bc75dc84c745abb",
+      "result": "passed"
+    },
+    {
+      "expected": "verified source-distribution candidate",
+      "path": "dist/meco_news-2.0.0.tar.gz",
+      "sha256": "11fea86ddde4e27779d8be982f3fdca2d2593d37b181713b1cf0a959fdd6a5af",
+      "result": "passed"
+    },
+    {
+      "expected": "fixed metric names, types, units, and cardinality",
+      "path": "metrics-schema.json",
+      "sha256": "f189bfaaea4f8071d6fb65a5c2062d66595a3e979741285398499d21514c13bf",
+      "result": "passed"
+    },
+    {
+      "expected": "commands, exit codes, environment, and limitations",
+      "sha256": "2028199d93ed56b9b21fd0fbb465da3332286b56c9fbef8269f85644a4ef6dd3",
+      "path": "commands.txt",
+      "result": "recorded"
+    },
+    {
+      "expected": "per-check result, reviewer state, and release limitation",
+      "sha256": "aa85632e7ad78c2a7bf9296a1bac0759ea3b99b0f21888c88d825d25dc8ab3b3",
+      "path": "verification.json",
+      "result": "recorded"
+    },
+    {
+      "expected": "candidate artifact hashes and required-but-unattached signature/SBOM state",
+      "sha256": "ee0afce449e4bab8a0d79045af098a731541358b96bae72b974be11fec76ecb7",
+      "path": "release/provenance.json",
+      "result": "recorded"
+    }
+  ],
+  "captured_at": "2026-09-07T02:41:44+07:00",
+  "environment": {
+    "architecture": "AMD64",
+    "os": "Windows-10-10.0.19045-SP0",
+    "python": "3.14.6",
+    "timezone": "Asia/Jakarta"
+  },
+  "evidence_schema": "docs/evidence/evidence-schema.json",
+  "external_gate_state": {
+    "docker_context_image_layers": "blocked",
+    "human_approval": "not_available",
+    "linux_nas_target": "not_run",
+    "rollout_shadow_canary_observation": "not_authorized",
+    "signing_sbom": "not_attached",
+    "windows_scheduler_target": "not_run"
+  },
+  "release_id": "local-2026-09-07",
+  "release_decision": "NO-GO",
+  "schema_version": 1,
+  "source": {
+    "git_commit": "1e820fc968c3dbb3dfa35904ee01a3131f7dfc70",
+    "working_tree_clean": false,
+    "working_tree_status_sha256_at_capture": "d8b9ed6a4a77ac28703cf9f6a7be4ac411dd1073adbf32b528a4c5a23ceae3f6"
+  },
+  "status": "implementation_checkpoint"
+}

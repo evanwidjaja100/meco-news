@@ -30,7 +30,7 @@ from logging.handlers import RotatingFileHandler
 import os
 import re
 import sys
-from typing import Any
+from typing import Any, TextIO
 from collections.abc import Mapping
 from urllib.parse import urlsplit
 
@@ -131,12 +131,20 @@ def redact(value: Any, *, limit: int = 2_000, _key: str = "", _depth: int = 0) -
 class JsonEventFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         fields = getattr(record, "event_fields", {})
+        raw_event = getattr(record, "event_name", "")
+        # Event names are identifiers, not operator-controlled text.  A
+        # normal ``logger.info(message)`` call must still be safe, however:
+        # the message is retained as a redacted diagnostic field rather than
+        # being copied into the event identifier (C1.4/R18).
+        event = raw_event if isinstance(raw_event, str) and re.fullmatch(r"[a-zA-Z0-9_.:-]{1,96}", raw_event) else "log_message"
         payload: dict[str, Any] = {
             "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
-            "event": getattr(record, "event_name", record.getMessage()),
+            "event": event,
             "version": __version__,
         }
+        if not raw_event:
+            payload["message"] = redact(record.getMessage(), limit=2_000)
         if isinstance(fields, Mapping):
             payload.update(redact(fields))
         if record.exc_info:
@@ -145,14 +153,14 @@ class JsonEventFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
 
-def configure_logging(*, level: str = "INFO", file_path: str | None = None) -> None:
+def configure_logging(*, level: str = "INFO", file_path: str | None = None, stream: TextIO | None = None) -> None:
     root = logging.getLogger()
     root.setLevel(getattr(logging, str(level).upper(), logging.INFO))
     for handler in list(root.handlers):
         root.removeHandler(handler)
         handler.close()
     formatter = JsonEventFormatter()
-    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler = logging.StreamHandler(stream or sys.stdout)
     stdout_handler.setFormatter(formatter)
     root.addHandler(stdout_handler)
     if file_path:

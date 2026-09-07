@@ -1,0 +1,83 @@
+{
+  "abandoned_first_delivery_health": {
+    "healthy": false,
+    "reasons": [
+      "abandoned_delivery"
+    ],
+    "state": "collecting"
+  },
+  "concurrent_backup_lock_owners": {
+    "probe_error": "BackupBusy: backup lock changed while recovering a stale marker"
+  },
+  "corrupt_database_status_cli": {
+    "actual_file_exists": true,
+    "exit_code": 1,
+    "reported_state": "corrupt"
+  },
+  "destination_revert_still_blocked": {
+    "changed": "needs_attention",
+    "documented_resolution": "InvalidTransition: only an ambiguous or explicitly retry-safe terminal chunk can be resolved",
+    "reverted": "needs_attention",
+    "send_calls": 0
+  },
+  "expired_retry_still_sends": {
+    "budget_exhausted_before_run": true,
+    "outcome": "failed_terminal",
+    "send_calls": 0
+  },
+  "fictional_critical_branch_passes": {
+    "empty_register": false,
+    "missing": [],
+    "passed": false,
+    "registered": 1,
+    "unknown": [
+      {
+        "entry": {
+          "branch": [
+            999999,
+            1000000
+          ],
+          "file": "meco_news/app.py",
+          "line": 999999
+        },
+        "reason": "line_not_measured"
+      }
+    ]
+  },
+  "fictitious_signature_passes": {
+    "failures": [
+      "artifacts:empty",
+      "signature:unverifiable"
+    ],
+    "passed": false,
+    "signature": {
+      "state": "signed"
+    }
+  },
+  "lease_budget_validation": {
+    "probe_error": "ConfigurationError: lease_ttl_seconds must exceed limits.cycle_deadline_seconds by at least 30 seconds"
+  },
+  "malformed_frozen_input_cli": {
+    "exit_code": 2,
+    "log_created": false,
+    "stdout": "{\"code\": 2, \"error_class\": \"ConfigurationError\", \"outcome\": \"invalid_input\"}\n",
+    "traceback": false
+  },
+  "restore_process_death_loses_authority": {
+    "child_exit": 73,
+    "deliveries_after_normal_reopen": 1,
+    "rollback_file_retained": false,
+    "target_missing_after_crash": true
+  },
+  "restore_replays_acknowledged": {
+    "duplicate_send_calls": 0,
+    "history_rows": 1,
+    "outcome": "already_completed",
+    "restored_delivery": "completed"
+  },
+  "spawned_worker_log_redaction": {
+    "process_exit": 0,
+    "stderr_has_traceback": true,
+    "synthetic_password_visible_in_stderr": false
+  }
+}

@@ -30,7 +30,9 @@ class Test90b(unittest.TestCase):
             from meco_news.storage import StateStore
 
             with StateStore(p) as s:
-                s.create_delivery("2026-10-05", config_hash="h")
+                s.acquire_lease("delivery", "fixture", 180)
+                s.create_delivery("2026-10-05", config_hash="h", owner_id="fixture")
+                s.release_lease("delivery", "fixture")
             with patch.dict("os.environ", {"STATE_DB": str(p)}):
                 self.assertEqual(main(["--status", "--json"]), 0)
                 self.assertEqual(main(["--healthcheck", "--json"]), 0)
@@ -62,15 +64,15 @@ class Test90b(unittest.TestCase):
             p = Path(d) / "db.db"
             with StateStore(p) as s:
                 # Test failed_terminal -> retry_wait
-                d1 = s.create_delivery("2026-10-06", config_hash="h")
                 s.acquire_lease("delivery", "o", 180)
+                d1 = s.create_delivery("2026-10-06", config_hash="h", owner_id="o")
                 s.prepare_delivery(d1.delivery_id, [], ["<b>hi</b>"], owner_id="o")
                 chunk = s.due_chunks(d1.delivery_id)[0]
                 s.begin_chunk_attempt(chunk.chunk_id, run_id="r", owner_id="o")
                 s.finish_chunk(chunk.chunk_id, "rejected_terminal", run_id="r", owner_id="o")
                 self.assertEqual(s.delivery(d1.delivery_id).state, "failed_terminal")
                 # Test due with retry_wait past
-                d2 = s.create_delivery("2026-10-07", config_hash="h")
+                d2 = s.create_delivery("2026-10-07", config_hash="h", owner_id="o")
                 s.prepare_delivery(d2.delivery_id, [], ["<b>hi2</b>"], owner_id="o")
                 s.connection.execute(
                     "UPDATE outbox_chunks SET state='retry_wait', next_attempt_at='2000-01-01T00:00:00+00:00' WHERE delivery_id=?",

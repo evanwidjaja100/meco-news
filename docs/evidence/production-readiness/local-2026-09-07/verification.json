@@ -1,0 +1,110 @@
+{
+  "captured_at": "2026-09-07T02:41:44+07:00",
+  "checks": [
+    {
+      "actual": "509 tests passed",
+      "artifact": "tests/",
+      "command": "python -B -m unittest discover -s tests",
+      "exit_code": 0,
+      "expected": "all discovered tests pass",
+      "id": "unit-unittest",
+      "independent_reviewer": null,
+      "implementer": "Codex coordinator",
+      "result": "passed"
+    },
+    {
+      "actual": "509 tests passed",
+      "artifact": "tests/",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "expected": "all pytest tests pass",
+      "id": "unit-pytest",
+      "independent_reviewer": null,
+      "implementer": "Codex coordinator",
+      "result": "passed"
+    },
+    {
+      "actual": {
+        "branch": {"covered": 1829, "percent": 90.01, "total": 2032},
+        "critical_branches": {"missing": [], "registered": 8, "unknown": []},
+        "statement": {"covered": 5749, "percent": 93.525, "total": 6147}
+      },
+      "artifact": "coverage-release.json",
+      "command": "python scripts/coverage_gate.py --coverage-json coverage-release.json --critical-branches scripts/critical-branches.json",
+      "exit_code": 0,
+      "expected": "at least 90% statements and branches; all critical branches covered",
+      "id": "coverage-gate",
+      "independent_reviewer": null,
+      "implementer": "Codex coordinator",
+      "result": "passed"
+    },
+    {
+      "actual": "Ruff passed; mypy strict passed for 22 source modules",
+      "artifact": "pyproject.toml",
+      "command": "python -m ruff check meco_news tests scripts && python -m mypy meco_news",
+      "exit_code": 0,
+      "expected": "static checks pass",
+      "id": "static-quality",
+      "independent_reviewer": null,
+      "implementer": "Codex coordinator",
+      "result": "passed"
+    },
+    {
+      "actual": "wheel and sdist built",
+      "artifact": "dist/",
+      "command": "python -m build --wheel --sdist",
+      "exit_code": 0,
+      "expected": "both release artifacts build",
+      "id": "package-build",
+      "independent_reviewer": null,
+      "implementer": "Codex coordinator",
+      "result": "passed"
+    },
+    {
+      "actual": "installed import resolved to a temporary site-packages directory; CLI passed",
+      "artifact": "dist/meco_news-2.0.0-py3-none-any.whl",
+      "command": "python scripts/package-smoke.py dist/meco_news-2.0.0-py3-none-any.whl --config config/watchlist.json",
+      "exit_code": 0,
+      "expected": "wheel works outside checkout",
+      "id": "wheel-smoke",
+      "independent_reviewer": null,
+      "implementer": "Codex coordinator",
+      "result": "passed"
+    },
+    {
+      "actual": "installed import resolved to a temporary site-packages directory; CLI passed",
+      "artifact": "dist/meco_news-2.0.0.tar.gz",
+      "command": "python scripts/package-smoke.py dist/meco_news-2.0.0.tar.gz --config config/watchlist.json --build-tools tmp-wheelhouse",
+      "exit_code": 0,
+      "expected": "sdist works outside checkout with pinned build tools",
+      "id": "sdist-smoke",
+      "independent_reviewer": null,
+      "implementer": "Codex coordinator",
+      "result": "passed"
+    },
+    {
+      "actual": "lint passed; Docker context/image/layer/history/runtime check blocked because the Docker Desktop Linux daemon is unavailable",
+      "artifact": "scripts/verify-build-context.py",
+      "command": "python scripts/verify-build-context.py --root . --json",
+      "exit_code": 0,
+      "expected": "lint passes; actual Docker result is passed or explicitly blocked",
+      "id": "context-verification",
+      "independent_reviewer": null,
+      "implementer": "Codex coordinator",
+      "result": "blocked"
+    }
+  ],
+  "limitations": [
+    "This is Windows-local evidence only; Linux/NAS and target Windows scheduler execution were not performed.",
+    "No host power-loss, live Telegram, independent alert delivery, target egress, protected CI, signing, SBOM, or rollout evidence was available.",
+    "No independent reviewer or human release approval is recorded by this checkpoint."
+  ],
+  "release_decision": "NO-GO",
+  "rollback_note": "Do not promote. Preserve the current database and evidence; use the verified backup/restore runbook before any schema or binary rollback.",
+  "schema_version": 1,
+  "source": {
+    "git_commit": "1e820fc968c3dbb3dfa35904ee01a3131f7dfc70",
+    "working_tree": "not_clean",
+    "working_tree_status_sha256_at_capture": "d8b9ed6a4a77ac28703cf9f6a7be4ac411dd1073adbf32b528a4c5a23ceae3f6"
+  }
+}

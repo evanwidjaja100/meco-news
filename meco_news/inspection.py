@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from .migrations import CURRENT_SCHEMA_VERSION, ledger_contiguity_issue, migration_checksum
+from .migrations import CURRENT_SCHEMA_VERSION, LEGACY_FENCE_TRIGGERS, ledger_contiguity_issue, migration_checksum
 
 SchemaClassification = Literal[
     "missing",
@@ -50,6 +50,9 @@ REQUIRED_TABLES = frozenset(
         "article_history",
         "source_results",
         "delivery_resolutions",
+        "state_transitions",
+        "force_audits",
+        "maintenance_fences",
     }
 )
 
@@ -60,8 +63,12 @@ REQUIRED_INDEXES = frozenset(
         "idx_deliveries_date_state",
         "idx_chunks_due",
         "idx_source_results_delivery",
+        "idx_state_transitions_entity",
+        "idx_force_audits_delivery",
     }
 )
+
+REQUIRED_LEGACY_TRIGGERS = frozenset(LEGACY_FENCE_TRIGGERS)
 
 LEGACY_TABLES = frozenset({"sent_articles", "runs"})
 
@@ -93,23 +100,24 @@ def check_python_version(info: tuple[int, ...] | None = None) -> tuple[bool, str
     return python_in_range(resolved), version
 
 
-def _open_ro(target: Path) -> sqlite3.Connection:
-    # immutable=1 keeps even the read path from creating -shm/-wal sidecars; any
-    # staleness this risks (ignoring an uncheckpointed -wal) fails closed because
-    # writers only ever move the ledger forward under a lease this same preflight
-    # reports on, and a ledger that reads older than supported is non-ready.
-    uri = f"file:{target.resolve().as_posix()}?mode=ro&immutable=1"
+def _open_ro(target: Path, *, offline: bool = False) -> sqlite3.Connection:
+    # Live reads use ordinary mode=ro so SQLite can see committed WAL frames.
+    # immutable=1 is restricted to an explicitly quiescent offline artifact.
+    query = "mode=ro&immutable=1" if offline else "mode=ro"
+    uri = f"file:{target.resolve().as_posix()}?{query}"
     connection = sqlite3.connect(uri, uri=True, timeout=2.0)
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA query_only=ON")
+    connection.execute("BEGIN")
     return connection
 
 
-def inspect_state(path: str | Path) -> InspectionResult:
+def inspect_state(path: str | Path, *, offline: bool = False) -> InspectionResult:
     target = Path(path)
     if not target.exists():
         return InspectionResult("missing", 0, "not_yet_created", "state database does not exist yet")
     try:
-        connection = _open_ro(target)
+        connection = _open_ro(target, offline=offline)
     except sqlite3.Error:
         return InspectionResult("corrupt", 0, "open_failed", "state database cannot be opened read-only")
     try:
@@ -154,10 +162,37 @@ def inspect_state(path: str | Path) -> InspectionResult:
         missing_indexes = sorted(REQUIRED_INDEXES - indexes)
         if missing_indexes:
             return InspectionResult("malformed", current, "ok", f"structural signature is missing index(es): {', '.join(missing_indexes)}")
+        fences = {str(row[0]) for row in connection.execute('SELECT name FROM sqlite_master WHERE type=\'trigger\'').fetchall()}
+        missing_fences = sorted(REQUIRED_LEGACY_TRIGGERS - {str(name) for name in fences})
+        if missing_fences:
+            return InspectionResult("malformed", current, "ok", "structural signature is missing legacy fence trigger(s): " + ", ".join(missing_fences))
+        delivery_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(deliveries)").fetchall()}
+        chunk_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(outbox_chunks)").fetchall()}
+        missing_columns = sorted(
+            {
+                "retry_policy_json",
+                "retry_first_at",
+                "retry_last_at",
+                "retry_attempt_high_water",
+                "retry_deadline_at",
+                "retry_elapsed_seconds",
+                "force_operator",
+                "force_reason",
+                "predecessor_delivery_id",
+            }
+            - delivery_columns
+        )
+        missing_columns.extend(
+            sorted({"first_attempt_at", "last_attempt_at", "retry_deadline_at"} - chunk_columns)
+        )
+        if missing_columns:
+            return InspectionResult("malformed", current, "ok", "structural signature is missing column(s): " + ", ".join(missing_columns))
         return InspectionResult("compatible", current, "ok", "schema version and structural signature match")
     except sqlite3.Error:
         return InspectionResult("corrupt", 0, "unreadable", "state database is not a readable SQLite database")
     finally:
+        with contextlib.suppress(sqlite3.Error):
+            connection.rollback()
         connection.close()
 
 
@@ -198,6 +233,7 @@ __all__ = [
     "MAX_PYTHON_EXCLUSIVE",
     "MIN_PYTHON",
     "REQUIRED_INDEXES",
+    "REQUIRED_LEGACY_TRIGGERS",
     "REQUIRED_TABLES",
     "SUPPORTED_PYTHON_RANGE",
     "InspectionResult",

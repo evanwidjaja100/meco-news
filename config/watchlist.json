@@ -21,6 +21,8 @@
     "socket_timeout_seconds": 5,
     "max_redirects": 2,
     "entries_per_source": 250,
+    "cycle_deadline_seconds": 120,
+    "ipc_frame_bytes": 4194304,
     "xml_depth": 32,
     "xml_nodes": 10000,
     "title_chars": 512,
@@ -42,7 +44,8 @@
     "max_attempts": 4,
     "base_delay_seconds": 60,
     "max_delay_seconds": 3600,
-    "jitter_seconds": 15
+    "jitter_seconds": 15,
+    "max_elapsed_seconds": 604800
   },
   "trusted_domains": [
     "meco.co.id",

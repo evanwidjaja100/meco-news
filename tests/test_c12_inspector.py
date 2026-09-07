@@ -55,7 +55,9 @@ VALID_SECRETS = {"TELEGRAM_BOT_TOKEN": "123456:real-token-value-for-test", "TELE
 
 def _fresh_db(path: Path) -> Path:
     with StateStore(path) as store:
-        store.create_delivery("2026-09-06", config_hash="h")
+        store.acquire_lease("delivery", "fixture", 180)
+        store.create_delivery("2026-09-06", config_hash="h", owner_id="fixture")
+        store.release_lease("delivery", "fixture")
     for suffix in ("-wal", "-shm", "-journal"):
         sidecar = Path(str(path) + suffix)
         if sidecar.exists():
@@ -65,7 +67,14 @@ def _fresh_db(path: Path) -> Path:
 
 def _snapshot(path: Path) -> tuple[str, list[str]]:
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    names = sorted(p.name for p in path.parent.iterdir())
+    # A live WAL-aware read may create SQLite coordination sidecars.  They
+    # are not application-state mutations; the database bytes and all other
+    # files must remain unchanged.
+    names = sorted(
+        p.name
+        for p in path.parent.iterdir()
+        if not any(p.name.endswith(suffix) for suffix in ("-wal", "-shm", "-journal"))
+    )
     return digest, names
 
 
@@ -191,6 +200,20 @@ class TestInspectClassification(unittest.TestCase):
 
 
 class TestInspectReadOnly(unittest.TestCase):
+    def test_live_read_sees_committed_wal_state(self) -> None:
+        """A live read must not silently fall back to the main DB image."""
+
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "state.db"
+            with StateStore(path) as writer:
+                lease = writer.acquire_lease("delivery", "wal-owner", 180)
+                self.assertTrue(lease.acquired)
+                self.assertEqual(int(writer.connection.execute("PRAGMA synchronous").fetchone()[0]), 2)
+                result = inspect_state(path)
+                self.assertEqual(result.classification, "compatible")
+                with StateStore(path, readonly=True) as live_reader:
+                    self.assertEqual(live_reader.lease_info("delivery")["owner_id"], "wal-owner")
+
     def test_inspection_mutates_no_bytes_or_sidecars(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             path = _fresh_db(Path(d) / "state.db")

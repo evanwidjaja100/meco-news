@@ -55,8 +55,9 @@ class TestF005GenerationZeroTreatedAsAbsent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "state.db"
             with StateStore(path) as store:
+                store.acquire_lease("delivery", "fixture", 180)
                 # First delivery creates generation 0
-                first = store.create_delivery("2026-08-25", generation=0, config_hash="h1")
+                first = store.create_delivery("2026-08-25", generation=0, config_hash="h1", owner_id="fixture")
                 self.assertEqual(first.generation, 0)
                 latest = store.latest_generation("2026-08-25")
                 # Bug: int(row[0] or -1) returns -1 when MAX=0
@@ -66,7 +67,8 @@ class TestF005GenerationZeroTreatedAsAbsent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "state.db"
             with StateStore(path) as store:
-                store.create_delivery("2026-08-25", generation=0, config_hash="h")
+                store.acquire_lease("delivery", "fixture", 180)
+                store.create_delivery("2026-08-25", generation=0, config_hash="h", owner_id="fixture")
                 # Simulate what run_once does for force: latest+1
                 latest = store.latest_generation("2026-08-25")
                 next_gen = latest + 1
@@ -104,7 +106,9 @@ class TestF007NonOwnerCanMutate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "state.db"
             with StateStore(path) as store:
-                delivery = store.create_delivery("2026-08-25", config_hash="h")
+                store.acquire_lease("delivery", "fixture", 180)
+                delivery = store.create_delivery("2026-08-25", config_hash="h", owner_id="fixture")
+                store.release_lease("delivery", "fixture")
                 item = NewsItem(
                     title="LPG terminal",
                     url="https://example.com/lpg",
@@ -135,7 +139,7 @@ class TestF008RestoreAcceptsActiveWork(unittest.TestCase):
             # Create a DB with an active delivery lease
             with StateStore(src) as store:
                 store.acquire_lease("delivery", "owner1", 180)
-                store.create_delivery("2026-08-25", config_hash="h")
+                store.create_delivery("2026-08-25", config_hash="h", owner_id="owner1")
             artifact = create_backup(src, bak_dir, config_hash="h")
             # Try to restore over a DB that still has active lease — should refuse but currently does not check state
             dst = Path(d) / "dst.db"

@@ -1,0 +1,31 @@
+MECO News Scraper local implementation checkpoint
+Captured: 2026-09-07T02:41:44+07:00 (Asia/Jakarta)
+Environment: Windows-10-10.0.19045-SP0, AMD64, CPython 3.14.6
+Python: D:\Desktop\test\meco news scraper\.venv\Scripts\python.exe
+Git commit: 1e820fc968c3dbb3dfa35904ee01a3131f7dfc70
+Working tree: not clean; pre-existing and implementation changes are preserved
+
+Tool versions
+pytest 8.3.5
+ruff 0.14.14
+mypy 1.19.1
+coverage.py 7.6.11
+build 1.2.2.post1
+
+Verification commands and results
+python -B -m unittest discover -s tests -> exit 0; Ran 509 tests; OK
+python -m pytest -q -> exit 0; 509 tests passed
+python -m coverage run --branch --source=meco_news -m pytest -q -> exit 0; 509 tests passed
+python -m coverage json --data-file .coverage.release -o coverage-release.json -> exit 0
+python scripts/coverage_gate.py --coverage-json coverage-release.json --critical-branches scripts/critical-branches.json -> exit 0; statements 5749/6147 (93.525%); branches 1829/2032 (90.010%); critical 8/8
+python -m ruff check meco_news tests scripts -> exit 0
+python -m mypy meco_news -> exit 0; 22 source modules
+python -m build --wheel --sdist -> exit 0
+python scripts/package-smoke.py dist/meco_news-2.0.0-py3-none-any.whl --config config/watchlist.json -> exit 0
+python scripts/package-smoke.py dist/meco_news-2.0.0.tar.gz --config config/watchlist.json --build-tools tmp-wheelhouse -> exit 0
+python scripts/verify-build-context.py --root . --json -> exit 0; lint passed; actual Docker verification blocked (daemon unavailable)
+python -m pytest -q tests/test_c06_context.py -> exit 0; 5 tests passed
+python -m pytest -q tests/test_c21_migration.py tests/test_backup_coverage.py -> exit 0
+
+Safety and scope
+No production Telegram credentials, live scheduler installation, production database, live endpoint, release publication, or target-host operation was used. Docker unavailable is recorded as blocked, never as a pass. Local tests use disposable temporary directories and synthetic credentials/servers.

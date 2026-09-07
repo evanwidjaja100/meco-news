@@ -3,14 +3,31 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import copy
 from datetime import datetime, timedelta, UTC
 from difflib import SequenceMatcher
+from dataclasses import dataclass
 import re
 from typing import Any
 from collections.abc import Iterable, Mapping
 
 from .config import AppConfig
-from .models import NewsItem, canonical_url, normalized_title
+from .models import NewsItem, normalized_title
+from .urls import canonical_url
+
+
+@dataclass(frozen=True, slots=True)
+class DedupStats:
+    """Auditable work performed by one bounded deduplication pass."""
+
+    input_count: int
+    url_groups: int
+    exact_title_groups: int
+    fuzzy_candidates: int
+    fuzzy_comparisons: int
+    comparison_budget: int
+    budget_exhausted: bool
+    unprocessed_candidates: int
 
 
 def _contains(text: str, term: str) -> bool:
@@ -37,6 +54,17 @@ def _domain(item: NewsItem) -> str:
     # reparse raw metadata here: trusted-domain scoring must never be granted
     # by an unchecked URL or RSS provenance field.
     return item.source_host.casefold().removeprefix("www.") if item.source_host else ""
+
+
+def _is_aggregator(item: NewsItem) -> bool:
+    """Classify only code-owned collector/host provenance as an aggregator."""
+
+    host = _domain(item)
+    return item.collector.casefold() in {"google_news", "gdelt"} or host in {
+        "news.google.com",
+        "api.gdeltproject.org",
+        "gdeltproject.org",
+    }
 
 
 def freshness_reason(
@@ -163,8 +191,9 @@ def rank_item(item: NewsItem, config: Mapping[str, Any] | AppConfig, now: dateti
 
 def _quality_key(item: NewsItem) -> tuple[Any, ...]:
     published = _utc_datetime(item.published_at).timestamp() if item.published_at else 0
-    is_aggregator = int("news.google.com" in item.url.casefold() or "gdeltproject.org" in item.url.casefold())
+    is_aggregator = int(_is_aggregator(item))
     return (
+        is_aggregator,
         -int(item.score),
         -published,
         is_aggregator,
@@ -172,12 +201,16 @@ def _quality_key(item: NewsItem) -> tuple[Any, ...]:
         normalized_title(item.title, item.source),
         canonical_url(item.url),
         item.source.casefold(),
+        item.fingerprint,
     )
 
 
 def _merge_group(items: list[NewsItem]) -> NewsItem:
     ordered = sorted(items, key=_quality_key)
-    primary = ordered[0]
+    # Merging is a pure operation.  In particular, enriching the selected
+    # publisher must not alter a caller-owned item that may be reused by a
+    # second permutation or a different delivery.
+    primary = copy.deepcopy(ordered[0])
     # Enrich without changing the identity or replacing a direct URL with an
     # aggregator URL.  Lists are copied so later ranking cannot mutate a
     # second input object's metadata.
@@ -205,15 +238,15 @@ def _tokens(item: NewsItem, stop_words: set[str]) -> set[str]:
     }
 
 
-def deduplicate(
+def deduplicate_with_stats(
     items: Iterable[NewsItem],
     config: Mapping[str, Any] | AppConfig | None = None,
-) -> list[NewsItem]:
-    """Deduplicate deterministically with bounded fuzzy comparisons."""
+) -> tuple[list[NewsItem], DedupStats]:
+    """Deduplicate deterministically and return exact bounded-work facts."""
 
     material = [item for item in items if not item.is_quarantined]
     if not material:
-        return []
+        return [], DedupStats(0, 0, 0, 0, 0, 0, False, 0)
     by_url: dict[str, list[NewsItem]] = defaultdict(list)
     for item in material:
         by_url[canonical_url(item.url)].append(item)
@@ -228,6 +261,8 @@ def deduplicate(
     limits = config.get("limits", {}) if config is not None else {}
     max_candidates = int(limits.get("fuzzy_candidates", 500)) if isinstance(limits, Mapping) else 500
     max_comparisons = int(limits.get("fuzzy_comparisons", 20_000)) if isinstance(limits, Mapping) else 20_000
+    max_candidates = max(0, max_candidates)
+    max_comparisons = max(0, max_comparisons)
     candidates = exact[:max_candidates]
     stop_words = {
         "dan",
@@ -255,19 +290,26 @@ def deduplicate(
     token_cache = {id(item): _tokens(item, stop_words) for item in candidates}
     title_cache = {id(item): normalized_title(item.title, item.source) for item in candidates}
     clustered: list[NewsItem] = []
+    unprocessed: list[NewsItem] = []
     comparisons = 0
-    for item in candidates:
+    for position, item in enumerate(candidates):
         item_tokens = token_cache[id(item)]
         duplicate = False
+        fully_processed = True
         # A small first-token bucket preserves a linear-ish bound and still
         # catches translated headlines that share their core phrase.
         for kept in clustered:
             if comparisons >= max_comparisons:
+                fully_processed = False
                 break
+            # Count the unique candidate pair before any token-overlap
+            # shortcut.  This makes the hard budget auditable and prevents a
+            # later "exhausted" pass from resurrecting a pair already proven
+            # duplicate.
+            comparisons += 1
             kept_tokens = token_cache.get(id(kept), _tokens(kept, stop_words))
             if item_tokens and kept_tokens and not (item_tokens & kept_tokens):
                 continue
-            comparisons += 1
             overlap = len(item_tokens & kept_tokens) / max(1, min(len(item_tokens), len(kept_tokens)))
             sequence = SequenceMatcher(
                 None,
@@ -277,15 +319,38 @@ def deduplicate(
             if overlap >= 0.60 or sequence >= 0.84:
                 duplicate = True
                 break
-        if not duplicate:
-            clustered.append(item)
-    # When the fuzzy budget is exhausted, retain all as-yet-unmatched exact
-    # candidates rather than silently discarding them.
-    if comparisons >= max_comparisons:
-        retained = {canonical_url(item.url) for item in clustered}
-        clustered.extend(item for item in candidates if canonical_url(item.url) not in retained)
+        if duplicate:
+            continue
+        if not fully_processed:
+            # This candidate was not proven unique against every retained
+            # item.  Keep it as explicitly unprocessed, and keep every later
+            # candidate likewise; never call them confirmed duplicates.
+            unprocessed.extend(candidates[position:])
+            break
+        clustered.append(item)
+    clustered.extend(unprocessed)
     clustered.extend(exact[max_candidates:])
-    return sorted(clustered, key=_quality_key)
+    result = sorted(clustered, key=_quality_key)
+    return result, DedupStats(
+        input_count=len(material),
+        url_groups=len(by_url),
+        exact_title_groups=len(by_title),
+        fuzzy_candidates=len(candidates),
+        fuzzy_comparisons=comparisons,
+        comparison_budget=max_comparisons,
+        budget_exhausted=comparisons >= max_comparisons and bool(unprocessed),
+        unprocessed_candidates=len(unprocessed),
+    )
+
+
+def deduplicate(
+    items: Iterable[NewsItem],
+    config: Mapping[str, Any] | AppConfig | None = None,
+) -> list[NewsItem]:
+    """Compatibility wrapper returning only the deterministic result list."""
+
+    result, _ = deduplicate_with_stats(items, config)
+    return result
 
 
 def select_digest(

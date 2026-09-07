@@ -1,0 +1,34 @@
+{
+  "artifacts": [
+    {
+      "bytes": 121926,
+      "path": "D:\\Desktop\\test\\meco news scraper\\dist\\meco_news-2.0.0-py3-none-any.whl",
+      "sha256": "b85ac36f1de056567b543b0877b48199cd16f854a42b65604bc75dc84c745abb"
+    },
+    {
+      "bytes": 210186,
+      "path": "D:\\Desktop\\test\\meco news scraper\\dist\\meco_news-2.0.0.tar.gz",
+      "sha256": "11fea86ddde4e27779d8be982f3fdca2d2593d37b181713b1cf0a959fdd6a5af"
+    }
+  ],
+  "build_context": {
+    "state": "not_provided"
+  },
+  "python_support": ">=3.12,<3.15",
+  "sbom": {
+    "required_for_promotion": true,
+    "state": "not_attached"
+  },
+  "schema_compatibility": "application-enforced current schema",
+  "schema_version": 1,
+  "signature": {
+    "required_for_promotion": true,
+    "state": "not_signed"
+  },
+  "source": {
+    "git_commit": "1e820fc968c3dbb3dfa35904ee01a3131f7dfc70",
+    "git_status_sha256": "9494df1e020ed856286e2b32fd1175b273c7bc992c1fa017358ea46c58de67dd",
+    "root": "D:\\Desktop\\test\\meco news scraper",
+    "working_tree_sha256": "a0fb384e82b35bf8be7021d6d8449eb70ee583c05164a9a0bdb70691450ef8a3"
+  }
+}

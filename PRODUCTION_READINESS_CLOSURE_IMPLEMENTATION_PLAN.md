@@ -1,9 +1,9 @@
 # MECO News Scraper — Production Readiness Closure Implementation Plan
 
 Status: **Active remediation plan — all closure gates open**  
-Created from implementation audit: **2026-08-24**  
+Created from implementation audit: **2026-08-24**; revised after repository review: **2026-09-06**\
 Predecessor contract: [PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md](PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md)  
-Audited workspace: imported, unversioned implementation snapshot  
+Current audited baseline: **`1e820fc968c3dbb3dfa35904ee01a3131f7dfc70` plus the reviewed working-tree changes**\
 Current release decision: **NO-GO — supervised non-production pilot only**
 
 ---
@@ -40,34 +40,50 @@ Release-state progression is explicit: current NO-GO; RA-S permits non-productio
 
 ---
 
-## 2. Verified rebaseline
+## 2. Verified rebaseline — 2026-09-06
 
-The 2026-08-24 audit established the following local facts:
+The current evidence is [the repository review](docs/reviews/2026-09-06/REVIEW.md), [verification transcript](docs/reviews/2026-09-06/verification.txt), [disposable reproducer](docs/reviews/2026-09-06/reproduce_findings.py), [observations](docs/reviews/2026-09-06/reproductions.json), and [source manifest](docs/reviews/2026-09-06/source-manifest.sha256). The commit alone does not identify the reviewed implementation: the working tree contains existing storage, migration, inspection, architecture, and test changes. Preserve those changes and identify future evidence with both commit and a sanitized working-tree manifest. Plan edits do not close a finding.
 
 | Area | Verified result | Readiness meaning |
 |---|---|---|
-| Existing tests | 23/23 collected tests passed | Useful smoke evidence; insufficient breadth and depth |
-| Coverage | 59% combined line and branch coverage | Fails the mandatory 90% repository gate and critical-branch requirement |
-| Static quality | Ruff 0.9.10 check/format and mypy 1.15 strict passed | Positive local evidence only |
-| Packaging | Wheel and sdist built | Artifact existence is not metadata, reproducibility, provenance, or release proof |
-| Compose/scripts | Compose syntax, PowerShell parsing, and shallow build-context text sentinel passed | Runtime, target-host, ACL, egress, layer, and multi-architecture proof absent |
-| Docker runtime | Docker daemon unavailable during audit | Image runtime and platform gates remain open |
-| Provenance | No usable Git repository/history in the snapshot | Source identity, review, branch protection, tags, and release traceability absent |
-| Rollout | No shadow, canary, cutover, rollback-drill, or 72-hour evidence | Production rollout is prohibited |
+| Existing tests | Initial run: 379 passed, 1 failed (`test_verify_with_context`); safe repeat: 379 passed, that one test deselected | Preserve both results. The context verifier can overwrite/delete `.env`; repair it in isolation before running the full suite again |
+| Coverage | Safe repeat measured 79% combined statement/branch coverage | Below the existing 90% gate. Spawned-process collection is not yet configured; measure subprocess coverage deliberately, never infer that every unmeasured line is untested |
+| Static quality | Ruff and mypy passed; mypy checked 19 source files | Positive local evidence; does not prove behavioral safety |
+| Packaging | Local no-isolation build could not run because the environment lacked setuptools/wheel backend requirements | Blocked local verification, not proof of a package defect; rerun in a provisioned clean build environment |
+| Context verification | Disposable probe confirmed destructive `.env` handling and false-pass fallback paths | R10 is the first executable repair packet; never reproduce against real credentials or the working checkout |
+| Docker runtime | CLI present; daemon unavailable and local Docker configuration access restricted | Context/image/runtime proof remains blocked locally, not passed |
+| Provenance | Git commit available with pre-existing uncommitted changes | Reconcile authoritative remote/history and release controls; do not repeat the old claim that this directory has no Git repository |
+| State and behavior | Schema-v4 working tree; review records R01–R20 and 22 observation groups | Several groups cover one finding. Neither observation count nor test count is a closure metric |
+| Platforms and rollout | No live feed/Telegram, target scheduler, Linux runtime, power-loss, shadow/canary, or 72-hour observation validated in this review | Retain external gates and named evidence requirements |
 
-The strongest release blockers are not cosmetic:
+The first implementation priorities are:
 
-- preflight and health can report success while mandatory safety conditions fail;
-- forced generation zero can be treated as absent and recreated;
-- non-owners can perform delivery-state transitions;
-- Telegram failures can be retried when acceptance is unknown;
-- retry timing is not fully bounded;
-- hostile Unicode, XML, URL, and deadline cases can bypass defenses or abort healthy work;
-- historical migration compatibility and restore safety are not established;
-- identity and deduplication are not fully source-independent, deterministic, or bounded;
-- logs, metrics, alerts, backup retention, platform validation, CI, and release evidence do not satisfy their contracts.
+- stop duplicate sends after local acknowledgment persistence fails, including recovery with no lease row;
+- establish WAL-aware live reads, FULL synchronous durability, real runtime/maintenance exclusion, and transaction-local ownership;
+- make backup, migration, and restore preserve unresolved work and external-send uncertainty;
+- prevent ordinary invocations from resetting exhausted delivery budgets;
+- make Telegram envelopes, health, CLI reports, worker deadlines, and scheduler shutdown truthful and bounded;
+- close ingestion/rendering defects, test isolation, artifact verification, and operational evidence gaps.
 
-All original Waves 0–8 and every predecessor Definition of Done checkbox therefore remain open.
+The 2026-08-24 baseline (23 tests, 59% coverage, imported snapshot) and F-001–F-028 remain historical obligations, not current measurements. Existing closure receipts and status documents must be reconciled against this source, including older schema-v3 and coverage claims. Do not erase past evidence or blanket-close historical findings. All program gates remain open for the current candidate until their evidence is reconciled and affected probes pass.
+
+### 2.1 Contract amendments applied to both plans
+
+These corrections define the implementation target; Section 6 still requires recording operational choices and responsible owners. They do not grant deployment or production-data authority.
+
+1. **Live inspection:** use a WAL-aware read transaction for a running database. `immutable=1` is permitted only for a verified quiescent offline artifact. If a strict no-sidecar environment prevents a correct live read, return unavailable/non-ready or use an explicitly supplied consistent snapshot. Never report stale main-file data as current. Read-only means no application-state mutation; SQLite coordination sidecars are documented and tested. Dry-run retains its stronger zero-write contract by using supplied frozen input and, if requested, an offline history snapshot.
+2. **Output:** report-mode `--json` stdout contains exactly one JSON document, with diagnostics on stderr. Normal run/daemon structured lifecycle logs remain JSONL on stdout. No startup log may precede a machine report on stdout.
+3. **Frozen delivery:** persist the general configuration digest as provenance, separate from destination identity. Resume uses frozen content and retry policy; a source/ranking-only edit cannot invalidate delivery. Actual bot/chat/thread/endpoint/send-option changes require the audited resolution path.
+4. **Durability and restore:** authoritative writers require effective `synchronous=FULL`. Restore must reconcile unresolved work and sends after the recovery point, not merely look for an unexpired lease. Process-crash tests do not certify host power-loss behavior.
+5. **Test safety:** canaries, context experiments, restore/migration faults, and synthetic credentials run only in dedicated disposable directories. Do not write a canary over a real `.env`, database, backup, or configuration file. Full-suite execution is conditional on the R10 safety repair.
+
+SQLite's [immutable URI contract](https://www.sqlite.org/uri.html#uriimmutable) and [synchronous behavior](https://www.sqlite.org/pragma.html#pragma_synchronous) support the live-read and durability requirements. These are contract corrections, not evidence that the new implementation already meets them.
+
+### 2.2 Local implementation checkpoint — 2026-09-07
+
+The working tree now contains the locally implementable R01–R20 repairs, focused regression suites, operational scripts, and release documentation. The fresh local verification record is [docs/evidence/production-readiness/local-2026-09-07/index.json](docs/evidence/production-readiness/local-2026-09-07/index.json). It records 509 collected tests, separate statement/branch coverage, Ruff, mypy, wheel/sdist smoke results, and the Docker limitation without treating any of these as independent closure or release approval.
+
+The current implementation evidence is bounded to this Windows checkout and disposable local fixtures. Real Docker image/context inspection is `blocked` because the Docker Desktop Linux daemon is unavailable; Linux/NAS and target Windows scheduler execution, target egress controls, independent alert delivery, power-loss durability, signing/SBOM, protected-source review, human approvals, shadow/canary, rollback rehearsal, and 72-hour observation remain external gates. The release decision therefore remains **NO-GO**.
 
 ---
 
@@ -97,7 +113,7 @@ All original Waves 0–8 and every predecessor Definition of Done checkbox there
 
 ## 4. Closure goals
 
-### R0 — Attributable source and decisions
+### G0 — Attributable source and decisions
 
 Every change is traceable to an authoritative baseline, approved contract, reviewed change, immutable artifact, and named approver.
 
@@ -108,7 +124,7 @@ Success measures:
 - every finding, task, commit, review, test artifact, and release artifact is cross-linked;
 - protected source and signed release tags exist before rollout.
 
-### R1 — Truthful and side-effect-safe control plane
+### G1 — Truthful and side-effect-safe control plane
 
 CLI, preflight, status, and health never report success when a mandatory condition fails and never cause an unintended side effect.
 
@@ -120,7 +136,7 @@ Success measures:
 - status distinguishes latest terminal delivery from active delivery;
 - every mandatory failed check produces ready=false or healthy=false and a nonzero exit.
 
-### R2 — Authorized, immutable, recoverable state
+### G2 — Authorized, immutable, recoverable state
 
 Every runtime mutation is authorized inside its transaction, completed evidence remains immutable, and migration/restore never exposes a mixed state.
 
@@ -133,7 +149,7 @@ Success measures:
 - legacy writers are fenced from migrated databases;
 - migration and restore fault matrices yield either the verified old state or the verified new state, never a partial hybrid.
 
-### R3 — Ambiguity-safe delivery and scheduler recovery
+### G3 — Ambiguity-safe delivery and scheduler recovery
 
 Telegram side effects are classified conservatively, immutable chunks resume safely, and retries are durable and bounded.
 
@@ -145,7 +161,7 @@ Success measures:
 - retry decisions and deadlines survive restart without recomputation drift; a backward wall-clock jump blocks automatic retry rather than extending its budget;
 - daemon scheduling consumes typed outcomes, reloads the resolved config path safely, and never loses terminal/attention state.
 
-### R4 — Hostile-input isolation and deterministic content
+### G4 — Hostile-input isolation and deterministic content
 
 Untrusted feeds cannot escape resource, URL, parser, Unicode, or output boundaries, and equivalent frozen inputs always produce byte-identical selected content.
 
@@ -158,19 +174,19 @@ Success measures:
 - source deadlines terminate and reap workers;
 - title identity is source-independent, direct publishers beat aggregators, merge ordering is total, and fuzzy work is completely budgeted.
 
-### R5 — Diagnosable, recoverable operations
+### G5 — Diagnosable, recoverable operations
 
 Operators can see, alert on, back up, restore, and resolve every material state without manual SQL.
 
 Success measures:
 
-- JSON logs go to stdout, redact by key and value, remove prohibited controls/bidi, and emit exactly one terminal event per attempt kind;
+- normal lifecycle JSONL logs go to stdout; single-report JSON commands put diagnostics on stderr; both redact every message/field, remove prohibited controls/bidi, and emit exactly one terminal event per attempt kind;
 - status/metrics expose stable outcome, source, retry, ambiguity, DB, lease, and dedup signals;
 - alerts are tested through an independent channel;
 - disk health fails below 1 GiB or 10% free;
 - backup retention, restore drills, Linux/NAS, and Windows target gates meet approved RPO/RTO and security requirements.
 
-### R6 — Reproducible, defended release
+### G6 — Reproducible, defended release
 
 The same reviewed artifact passes test, security, platform, shadow, canary, and production promotion.
 
@@ -182,7 +198,7 @@ Success measures:
 - one candidate is built from the protected tag, its exact context/layers/history/runtime are inspected, and only that same digest is signed;
 - the protected tag/candidate produces SBOM, checksums, provenance, signature, compatibility manifest, and one immutable candidate digest.
 
-### R7 — Evidence-led rollout and feedback
+### G7 — Evidence-led rollout and feedback
 
 Rollout progresses only through approved shadow, canary, rollback-rehearsal, cutover, and observation evidence.
 
@@ -210,11 +226,11 @@ Success measures:
 9. A confirmed Telegram chunk is never automatically resent.
 10. A request whose acceptance is not proven becomes ambiguous and blocks later chunks.
 11. Raw HTTP 5xx, malformed responses, and failures after possible transmission are ambiguous unless a valid explicit Telegram rejection proves non-acceptance.
-12. Lease expiry does not prove that an in-flight remote request failed; reclaim converts unresolved in-flight work to ambiguous atomically.
+12. Lease expiry or absence does not prove that an in-flight remote request failed; recovery converts orphaned in-flight work to ambiguous atomically under valid authority.
 13. Retry delay, retry count, and total elapsed retry time are independently bounded and persisted; backward wall-clock movement cannot extend a budget and blocks automatic retry when elapsed time cannot be trusted.
 14. Forced delivery requires an already completed generation, operator, reason, predecessor, and atomic N+1 allocation.
 15. Old binaries and legacy tables cannot write a migrated database.
-16. Restore requires the exclusive process-lifetime maintenance guard, proved-stopped schedulers/processes, no active lease or in-flight chunk, verified compatibility, and a preserved pre-restore artifact.
+16. Restore requires exclusive process-lifetime maintenance, proved-stopped schedulers/processes, verified compatibility, preserved recoverable state, and reconciliation of all unresolved work and sends after the recovery point. Unverifiable history keeps delivery disabled.
 17. Dry-run makes no remote network call and does not create or mutate state, WAL/SHM, lease, migration, log file, status file, backup, scheduler, or Telegram client. Candidate evaluation uses explicitly supplied frozen local input.
 18. Every untrusted identity field contains valid Unicode scalar values before hashing, encoding, persistence, or rendering.
 19. One malformed item is quarantined; one failed source degrades coverage but cannot terminate healthy-source processing.
@@ -225,7 +241,7 @@ Success measures:
 24. Content identity is source-independent; merge and ranking use immutable inputs and a documented total order.
 25. All fuzzy work is counted before shortcuts and bounded by postings, candidate-pair, similarity-call, per-item, and global budgets.
 26. Every final Telegram payload is valid UTF-8/scalar text, escaped HTML, bounded by raw bytes and UTF-16 units, and mapped back to delivered or omitted items.
-27. Logs go to stdout, use stable schemas/reason codes, recursively redact sensitive keys and values, and emit exactly one terminal event for every attempt kind.
+27. Normal lifecycle logs are stdout JSONL; report-mode JSON stdout is one document with diagnostics on stderr. Every stream uses stable schemas/reasons, redacts messages and fields, and has exactly one terminal event per attempt kind.
 28. Latest terminal delivery and active delivery are separate status concepts.
 29. Backups, manifests, evidence, and diagnostics never contain secrets or raw hostile payloads.
 30. The exact build-once candidate is context/layer/runtime inspected before signing; shadow, canary, controlled production observation, and production-ready promotion use that same signed digest.
@@ -246,7 +262,7 @@ The coordinator must record the predecessor decisions D1–D12 and the following
 | ADR-C04 | Supported schema/version compatibility matrix and inventory of any deployed databases/binaries | Migration catalog and restore |
 | ADR-C05 | Explicit migration command; process-lifetime shared/exclusive execution guard; transaction-visible maintenance epoch/fence; stale-guard recovery; old-writer fence | Migration, state, restore |
 | ADR-C06 | Runtime lease capability shape, scopes, heartbeat interval, expiry, and optional fencing token | All state transitions |
-| ADR-C07 | Force grammar plus terminal retry: same frozen failed generation only, allowlisted reason, no ambiguous/in-flight chunk, audited one-shot authorization, no automatic-budget reset | Generations and CLI |
+| ADR-C07 | Force grammar plus terminal retry: same failed generation, existing frozen content unchanged (or first snapshot after an audited collection-only retry), allowlisted reason, no ambiguous/in-flight chunk, audited one-shot authorization, no automatic-budget reset | Generations and CLI |
 | ADR-C08 | Telegram transport-stage classification; delay/attempt/elapsed retry caps; persisted wall-clock high-water mark and fail-closed rollback handling | Outbox and scheduler |
 | ADR-C09 | Scheduler behavior after invalid config reload; DeliveryTargetSnapshot algorithm; stable HMAC-key custody/version/rotation; frozen-outbox mismatch policy | Scheduler and outbox |
 | ADR-C10 | XML parser/isolation implementation and dependency review | Parser and worker security |
@@ -257,6 +273,9 @@ The coordinator must record the predecessor decisions D1–D12 and the following
 | ADR-C15 | Independent alert channel and escalation ownership | Alerts and rollout |
 | ADR-C16 | CI host, registry, signing identity, provenance format, SBOM format, scan tools, and waiver authority | Release gate |
 | ADR-C17 | Offline dry-run input contract; any future live-source preview is a separate explicit mode and plan amendment | CLI, outcome policy, docs |
+| ADR-C18 | WAL-aware live snapshot versus immutable offline artifact; FULL authority writers; sidecar permission/unavailable semantics | C2.0 and final preflight/restore integration |
+| ADR-C19 | Acknowledgment persistence failure, missing-lease recovery, terminal collection reopen, and post-backup external-send reconciliation | State transition table, C2.4/C2.5/C3.3 |
+| ADR-C20 | Per-source execution, queue and whole-cycle budgets; bounded IPC frame size/read deadline; shutdown grace; fairness policy | C4.4/C3.4 and target resource tests |
 
 Narrowing Linux/NAS or Windows support is not an ADR-C14 shortcut. It requires a separately approved design-change task that atomically amends both plans, D3, the Definition of Done, F-023 mappings, CI/target evidence, and support documentation before candidate signing.
 
@@ -314,6 +333,42 @@ Ledger closure rules:
 - an allowed security waiver records owner, rationale, compensating control, expiry, and release approval.
 
 ---
+
+### 7.1 Current review traceability and closure proof
+
+Every row below starts **Open**. IDs R01–R20 are stable identifiers from the September review; F-### IDs retain the historical ledger. One repair may satisfy both, but each row needs its own evidence link and closure decision. Goals use G0–G7 to avoid confusing them with review IDs. P1 rows block production safety/correctness; P2 rows are also mandatory before release. Repair R10 first to make subsequent verification safe, then follow dependencies rather than severity alone.
+
+| Finding / goal | Priority | Existing obligations and implementation tasks | Required observable closure proof |
+|---|---|---|---|
+| R01 Acknowledgment persistence failure / G2, G3 | P1 | F-007, F-011; C2.3, C2.4, C3.3 | Accepted request plus injected local commit failure, with missing/expired/live lease: exactly one request across normal reruns; durable sent or blocked uncertainty; no new generation or later chunk |
+| R02 Stale immutable live reads / G1, G2 | P1 | F-003, F-004, F-008; C1.2, C1.3, C2.5 | Writer keeps committed lease/delivery only in WAL; all live inspectors see it or report unavailable; no stale ready/healthy/restore authorization |
+| R03 Ineffective maintenance exclusion / G2 | P1 | F-006, F-007, F-008; C2.0, C2.2, C2.3 | Two contenders cannot both hold exclusive authority; existing real writable connection prevents maintenance; stale owner cannot commit after fence change |
+| R04 Destructive/incomplete restore / G2, G5 | P1 | F-008, F-022; C2.5, C5.3 | Source/target unresolved-state matrix, exact schema catalog, atomic activation faults, and post-backup send reconciliation preserve evidence and prevent silent replay |
+| R05 Weak durable intent/ack policy / G2 | P1 | F-007, F-011; C2.0, C2.3, C5.4, C5.5 | Every authority connection reports FULL; failed intent commit sends nothing; process-crash matrix plus separately identified storage durability evidence |
+| R06 Retry limits reset by next invocation / G3 | P1 | F-005, F-010, F-011; C2.4, C3.2 | Attempt/elapsed exhaustion remains terminal across ordinary run, run-if-due, daemon, restart and midnight; explicit same-generation one-shot permit is audited and cannot reset history |
+| R07 State ownership bypasses / G2 | P1 | F-007, F-011; C2.3, C3.3 | Complete mutator inventory rejects wrong/missing/expired/superseded authority in the write transaction; attempt/run binding, payload mapping, and chunk order enforced |
+| R08 Telegram envelope validation / G3 | P1 | F-009; C3.1 | Exact boolean and positive integer response matrix, including null/string/bool IDs, wrong destination, malformed success, and explicit negative; unknown acceptance never retries |
+| R09 False-green readiness/health / G1, G5 | P1 | F-003, F-004, F-010, F-013; C1.2, C1.3, C3.5, C5.1 | WAL failure, corrupt state, ancient collecting/no-lease/no-success, overdue and ordinary retry states yield correct fields/reasons/exits; actual CLI output agrees |
+| R10 Unsafe/false-pass context test / G6 | P1 | F-024, F-025; C0.4, C6.4, C6.5 | Existing synthetic `.env` survives; positive leak control fails; real context/layers inspected; missing Docker remains blocked; no writes outside disposable fixture |
+| R11 Dry-run ignores real input / G1, G4 | P2 | F-002, F-013; C1.1, C3.5 | Populated frozen input traverses real normalization/ranking/rendering; missing input is explicit usage failure; no remote client or writable state created |
+| R12 General config hash strands outbox / G3 | P2 | F-011, F-012; C3.3, C3.4 | Minimum-score/source change resumes identical frozen bytes; true destination mismatch blocks with supported audited resolution and no SQL surgery |
+| R13 Backup fabricates missing source / G2, G5 | P2 | F-006, F-008, F-022; C2.0, C2.2, C5.3 | Missing source creates nothing; WAL rows retained; concurrent same-time jobs cannot collide; manifest-last publication never exposes incomplete backup as valid |
+| R14 Invalid source document counted empty / G4 | P2 | F-013, F-015; C4.3, C3.5 | RSS/Atom/GDELT shape matrix separates valid empty from XHTML outage, missing articles list, invalid records and all-quarantined input |
+| R15 Dedup exhaustion resurrects duplicates / G4 | P2 | F-018; C4.5 | Already rejected duplicate stays rejected after a later comparison exhausts budget; unprocessed candidates remain deterministic with exact work accounting |
+| R16 HTML/entity and continuation sizing / G4 | P2 | F-019; C4.6 | Supported entities, final byte/UTF-16 limits including headers, 900-unit long-URL reproducer, and healthy sibling retention all pass |
+| R17 JSON report stdout polluted / G1 | P2 | F-002, F-020; C1.1, C1.4 | Parse actual subprocess stdout as one JSON document for every machine command, including failures; diagnostics remain on stderr |
+| R18 Message/event redaction bypass / G1, G5 | P2 | F-020; C1.4, C5.1 | Synthetic secret absent in formatted message, event, args, exception/stack, nested fields, worker output and persisted sinks |
+| R19 Global deadline starvation/unbounded IPC / G4 | P2 | F-017; C4.4 | Ten jobs/two workers with slow first jobs proves queue/execution/cycle budgets; partial IPC cannot hang parent; every child reaped; next cycle succeeds |
+| R20 Scheduler ignores outcomes/reload/signal / G3 | P2 | F-012, F-017; C3.4 | Config changed during long wait takes effect before work; typed terminal/attention outcomes affect supervision; per-chunk authority loss and SIGTERM stop new sends |
+
+### 7.2 Additional obligations from the review
+
+These are tracked work, not newly confirmed exploits. Carry them into the ledger under the existing finding/task IDs and give each a separate acceptance record:
+
+- **F-016 / C4.2, C5.4–C5.5:** close the gap between validated DNS addresses and the actual connection, and make proxy behavior explicit. Prove mixed answers, redirects, DNS rebinding and proxy bypass against controlled endpoints plus target egress positive controls. Do not claim an exploit was observed in this review.
+- **F-023 / C2.0, C5.5:** use platform-specific process identity/liveness queries. A PID alone is not an authority token; account for reuse, access denied, dead process and boot/session identity. The Windows `os.kill(pid, 0)` probe did not terminate the tested child; do not describe that as a confirmed kill bug. See [Python's platform-specific os.kill documentation](https://docs.python.org/3/library/os.html#os.kill).
+- **F-025–F-026 / C6.1–C6.3:** installed wheel/sdist smoke must run from an unrelated directory with an explicit configuration and prove the import path belongs to the installed artifact. Decide the support mismatch (metadata 3.12–3.14, CI 3.14, README/CONTRIBUTING 3.12/3.13, ADR target 3.14) through ADR-C02 and amend all declarations together. Add transitive hash locks, pinned build inputs, coverage enforcement and signed provenance.
+- **F-021–F-023, F-027 / C5.1–C5.6:** provision an independent alert sink, scheduled/off-host backups and retention, state/history pruning with unresolved-work exclusions, second-operator restore, and actual target evidence. Correct stale status/architecture/coverage/schema claims with dated supersession links.
 
 ## 8. Multi-agent execution model
 
@@ -397,7 +452,7 @@ For every packet, a different agent:
 | Shared area | Integration owner | Rule |
 |---|---|---|
 | meco_news/app.py | Coordinator | Workers submit interface and test requirements; coordinator performs final wiring |
-| meco_news/storage.py and migrations | Agent A | C2.1 → C2.2 → C2.3 → C2.4 merges serially |
+| meco_news/storage.py, inspection.py, migrate.py and migrations | Agent A | C2.0 → C2.1 → C2.3 authority core → C2.2 → C2.3 recovery → C2.4; one writer at a time |
 | meco_news/telegram.py | Agent B | Transport and render packets merge serially; Agent A reviews state mapping |
 | meco_news/config.py | Agent C | New fields freeze before dependent workers consume them |
 | meco_news/preflight.py | Agent C | Agent A supplies read-only schema/status API; one editor at a time |
@@ -432,15 +487,45 @@ Every handoff includes:
 - evidence artifact hashes;
 - suggested independent counterexample.
 
+### 8.4 Dispatch, review, and progress protocol
+
+Sub-agents are bounded implementers/reviewers, not independent release authorities. A coordinator plus A/B/C uses all four slots; a reviewer role is a reassignment of an existing worker, never an assumed fifth concurrent slot. Default review rotation is A's work → C, B's work → A, C's work → B; coordinator-authored app integration → the relevant non-author domain owner. If a reviewer co-authored that packet, rotate to another non-author. Human operations/security/release approvals remain distinct from agent review.
+
+Before dispatch, record a packet ID, source/working-tree fingerprint, finding IDs, goal, acceptance matrix, dependency state and exclusive file allocation. Workers may read shared files but propose shared-interface edits to the owner. Acquire the file allocation before editing; release it after a complete handoff. Record blocked dependencies rather than editing around another worker. Do not stage, revert or discard pre-existing user changes to make a diff look clean.
+
+Each worker reports at meaningful milestones: red reproduced; design/API ready; focused fix verified; review requested; or blocked with a precise missing input. A review rejection returns the packet to implementation with numbered counterexamples. Coordinator integration checks both the author's focused evidence and the reviewer's independent replay. No worker marks its own row Closed, publishes, sends real Telegram messages, or migrates/restores live data merely because a packet mentions those operations.
+
+Use this concrete dispatch form; replace every bracketed value before execution:
+
+```text
+Packet: [P-ID]  Findings: [Rxx / F-xxx]  Goal: [Gx]
+Source: [commit + working-tree manifest]  State: [Open / Red reproduced]
+Implementer: [A/B/C/Coordinator]  Independent reviewer: [non-author]
+Depends on: [accepted interface/packet IDs; external dependency if any]
+Owns: [exact source/test/doc paths]  Read-only shared files: [paths]
+Behavioral change: [concrete trigger -> intended state/output]
+Red proof: [safe fixture, exact command, expected failure, evidence path]
+Acceptance: [state/exit/request count/payload/limit and negative cases]
+Loops: [CL identifiers]  Integration gate: [CG identifier]
+Rollback: [code/config/schema recovery constraints; no production action]
+Stop: [specific invariant failure or unavailable prerequisite]
+Return: diff summary, actual commands/exits, artifact hashes, open cases,
+        migration/config impact, reviewer counterexample, proposed ledger update.
+```
+
 ---
 
 ## 9. Recurring closure loops
 
-These loops are mandatory work. They repeat until the associated findings stay closed through all later gates.
+These loops are mandatory work with bounded iterations, retained failures and explicit exits. They are implementation instructions, not scheduled automations. An iteration consumes a versioned fixture/contract and emits an actual result/evidence record; it never waits indefinitely for a platform or approval. Run focused checks on each change and the cumulative offline gate after an integrated packet batch. Repeat a passed check only after a relevant change, new counterexample, failure or evidence invalidation.
+
+If the same failure survives three materially attempted corrections, stop blind patching: the coordinator requests a root-cause/design review with the retained attempts and changes the packet before retrying. This is an escalation point, not a waiver or automatic closure. Unrelated dependency-ready work continues. External checks marked Blocked need an identified owner, missing prerequisite and resume condition; absence of evidence never becomes a pass.
+
+The current 79% baseline is a recorded deficit, not permission to lower the final gate. Bootstrap a safe cumulative suite after C0.4; enforce no unexplained regression for each packet, close affected critical decision branches to 100%, and raise coverage toward the final separate ≥90% statement and ≥90% branch gates. Do not require the entire unrepaired repository to reach 90% before the first repair can merge. Known-red probes remain linked and visible; any temporary deselection/strict expected failure needs an issue, owner and removal packet. None may satisfy final acceptance for a mandatory finding.
 
 ### CL0 — Finding-to-red-test loop
 
-1. Select the highest-priority dependency-ready F-### row.
+1. Select the highest-priority dependency-ready Rxx/F-### row, with C0.4 test safety first.
 2. Reduce the audit probe to a deterministic checked-in reproducer.
 3. Record the current failing output and intended contract.
 4. Confirm the test fails for the correct reason.
@@ -453,13 +538,15 @@ Exit: one stable red test or approved external protocol is linked to the finding
 
 1. Implement the smallest coherent change that satisfies the invariant.
 2. Run the focused tests.
-3. Run the full offline suite, Ruff, strict typing, and branch coverage.
+3. Run neighboring regressions and applicable Ruff/typing checks; after integration run the safe full offline suite and coverage under the ratchet above.
 4. Run all applicable hostile/fault/concurrency tests.
 5. Have another agent replay the audit and attempt a counterexample.
 6. Address review findings through a new explicit packet.
 7. Record commands, outputs, hashes, reviewer, and rollback.
 
 Exit: focused and cumulative checks pass and independent review accepts the invariant.
+
+Evidence per iteration: input source hash, fixture/seed, requested invariant, exact command/exit, actual state/output, diff hash, reviewer counterexample, and next action. A green assertion of internal implementation text is insufficient; check persisted state and externally visible behavior.
 
 ### CL2 — State-transition and kill loop
 
@@ -570,8 +657,8 @@ Dependencies: none
 
 Work:
 
-- search for and restore the authoritative remote/history before initializing replacement history;
-- if found, identify the source commit and import this snapshot as a reviewable diff;
+- inspect the existing Git history/remotes and identify the authoritative source without reinitializing or resetting this working tree;
+- reconcile the reviewed commit and pre-existing user changes as a reviewable diff; if historical provenance needs recovery, preserve current work before any separately reviewed import;
 - if not found, obtain an owner-signed statement that the directory is the authoritative imported snapshot and pre-import provenance is unknown;
 - create a SHA-256 file manifest and preserve the audited snapshot;
 - establish protected integration branch, CODEOWNERS/reviewer policy, named approvers, signed tags, and one issue per F-###;
@@ -594,7 +681,7 @@ Dependencies: C0.1 source identity for durable records
 
 Work:
 
-- resolve predecessor D1–D12 and ADR-C01–ADR-C17;
+- resolve predecessor D1–D12 and ADR-C01–ADR-C20 for dependent work, distinguishing technical contract decisions from human ownership/platform/release choices;
 - publish exact state/transition, schema, transport, retry, scheduler, Unicode, zero/outage, RPO/RTO, platform, and release contracts;
 - mark target behavior separately from currently verified behavior in architecture/status documents;
 - prevent schema/state/retry implementation from merging until its ADR is approved.
@@ -627,11 +714,26 @@ Proof:
 
 - all F-### rows link to a red test/protocol and intended contract.
 
+#### C0.4 — Make verification safe before replaying the suite
+
+Owner: Agent C; reviewer: Agent B. Goal: G6. Findings: R10, F-024/F-025. This is the first executable packet and may run alongside read-only C0 inventory; it does not wait for final release/provenance decisions.
+
+Work and proof:
+
+1. Reproduce the context verifier only in a temporary fake checkout with synthetic `.env`, configuration and backups; record their initial bytes and hashes. Never call the unsafe original test in the real checkout.
+2. Refactor the verifier to take an explicit disposable context root, generate exclusive unique canary paths, and clean up only paths it created after resolving them beneath that root. Existing files must remain byte-for-byte unchanged on success, exception, interruption and unavailable Docker.
+3. Remove mock/manual matcher success fallbacks from the real verification path. A textual `.dockerignore` lint may pass independently; actual-context verification must report Blocked when its daemon/permissions are unavailable. Add a deliberately included leak as a positive control that must fail.
+4. Add backups, `.bak`, manifests, state, local evidence/config and credential-shaped synthetic files to the context test corpus. C0.4 proves local filesystem preservation and unavailable-daemon/detection behavior with controlled doubles; label these as harness tests. Real transmitted-context and image inspection belongs to C6.4–C6.5 and may remain Blocked while the safety bootstrap closes. Explicit Dockerfile COPY entries alone never certify context exclusion.
+5. Run the repaired context test in isolation; reviewer proves pre-existing synthetic `.env` survives. Then run the full offline suite from the real checkout with all filesystem-mutating fixtures redirected to temporary directories. Keep Docker integration distinctly marked and visibly blocked if unavailable.
+
+Exit: the dangerous test no longer mutates caller data, its safety regressions pass, and the verifier cannot claim a real context pass without real evidence. Actual candidate/layer closure still belongs to C6.4–C6.5. Record any residual deselection explicitly rather than reporting “all tests pass.”
+
 #### Closure Gate CG0
 
 - authoritative source status is recorded;
 - decisions required by the next wave are approved;
-- all 28 findings have issue, owner, red test/protocol, reviewer, and evidence path;
+- F-001–F-028, R01–R20 and additional Section 7.2 obligations have linked issue, owner, red test/protocol, reviewer and evidence path;
+- C0.4 test-safety repair is independently accepted before full-suite verification;
 - current status is honestly NO-GO;
 - no production credential is present in test/config/evidence.
 
@@ -675,11 +777,13 @@ Exit:
 
 - 100% branch coverage of the option validator and all no-side-effect tests pass.
 
+September acceptance detail (R11/R17): define a versioned frozen-input schema with explicit source outcomes, article records, collection timestamp/timezone and optional offline history. Supply a populated fixture and assert actual normalization, dedup, ranking, omissions and final rendering; reject missing/invalid input before side effects rather than synthesize empty success. Capture files and client-constructor calls to prove zero writable state/network/log-file initialization. Run config-show, preflight, status, health and dry-run JSON modes as real subprocesses against success and error fixtures, and parse all stdout with one `json.loads()` call; assert exit code and absence of trailing records. Document the chosen input flag and schema in CLI help/runbooks when implemented, not as an already-existing command here.
+
 #### C1.2 — Make preflight exact, read-only, and fail-closed
 
 Owner: Agent C  
 Schema API owner/reviewer: Agent A  
-Dependencies: ADR-C04 read-only inspection contract
+Dependencies: ADR-C04/C18 and C2.0 LiveStateSnapshot for integrated verification; fixture and command grammar work may begin earlier
 
 C2.1 must later consume this same inspection interface without weakening or replacing its fail-closed classifications.
 
@@ -699,7 +803,7 @@ Red tests:
 
 - empty/missing, N-1, N, N+1, malformed ledger, a missing object from the ADR-C04 current structural signature, checksum mismatch, and corrupt DB;
 - every mandatory check false individually and representative multi-failure combinations;
-- preflight creates no DB/WAL/SHM and changes no timestamp/bytes;
+- preflight never creates a missing DB or changes application rows; live WAL-only commits are visible under Section 2.1, with sidecar-denied reads explicitly unavailable; strict byte/timestamp invariance is tested only for supplied offline artifacts;
 - normal preflight during maintenance is non-ready; maintenance_verify rejects missing/stale/wrong-scope context and never emits ready=true;
 - unsupported Python and unwritable/non-WAL-capable storage.
 
@@ -726,11 +830,13 @@ Red tests:
 
 - maintenance_in_progress, failed_terminal, needs_attention, exhausted retry, incompatible schema, corrupt state, stale lease/heartbeat, no history due/not due, disk thresholds at boundary and boundary-1;
 - representative simultaneous failures preserve all stable reasons and nonzero health;
-- probe calls leave state bytes and timestamps unchanged.
+- probe calls leave logical application state unchanged and follow the live/offline sidecar contract; corruption is an error, never reported as a missing database with exit 0.
 
 Exit:
 
 - health truth table has 100% decision-branch coverage.
+
+September acceptance detail (R09): seed a WAL-only current lease, mandatory WAL capability failure, corrupt database, collecting since a fixed ancient date with no lease/success, no-history before/after due time, ordinary all-source backoff and actual exhaustion. With a controlled clock, assert ready/healthy flags, stable reasons, all concurrent failures, exit precedence and alert relevance. Missing, corrupt and unavailable are distinct outputs. Check freshness even when an active/latest row exists. Persist ordinary retry and exhausted retry as different reasons; a positive remaining budget cannot be called exhausted. Re-run this table through the real CLI after C2/C3 integration.
 
 #### C1.4 — Establish safe structured logging and lifecycle identity
 
@@ -740,10 +846,10 @@ Dependencies: ADR-C11; stable attempt kinds
 
 Work:
 
-- send JSON logs to stdout and reserve stderr for intentional human diagnostics if documented;
+- send normal lifecycle JSONL logs to stdout; when a command emits a single JSON report, send all diagnostics/lifecycle logs to stderr and reserve stdout for that document alone;
 - define command, collection, delivery, and chunk attempt schemas with run/attempt/delivery/generation/chunk IDs;
 - emit exactly one terminal event per attempt kind through one lifecycle finalizer;
-- recursively redact sensitive keys and values in mappings, sequences, exceptions, and stack text;
+- redact the final formatted message, event, arguments, sensitive keys and values, mappings, sequences, exceptions and stack text; use the same policy in spawned workers and every persisted sink;
 - strip URL userinfo/query unless allowlisted, control/bidi characters, and cap hostile fields;
 - persist stable error class/reason separately from sanitized display text.
 
@@ -765,13 +871,36 @@ Exit:
 - control-plane critical branches are 100% covered;
 - all probes are read-only where required;
 - full offline/static suite remains green.
-- this gate accepts the fail-closed inspection contract against the audited baseline only; any later schema/signature change must rerun C1.2/C1.3 and CG1 evidence before CG2.
+- this gate requires C2.0 live-read/exclusion foundations and accepts the current structural signature only; C1 fixture work may precede C2.0, but cannot certify live behavior; any later state/schema/signature change reruns C1.2/C1.3 and CG1 evidence before CG2 or CG3 closes.
 
 ---
 
 ### Closure Wave 2 — Migration, state authority, generations, and restore
 
 Production deployment allowed: **no**.
+
+#### C2.0 — Establish live inspection, durability, exclusion, and safe backup foundations
+
+Owner: Agent A; reviewer: Agent C, with Agent B reviewing hostile/corrupt inputs. Goals: G1/G2/G5. Findings: R02/R03/R05/R13. Dependencies: C0.4 safe harness and the relevant ADR-C04/C05/C06/C18 contracts. This foundation begins before final CG1 certification; the wave number is a domain label, not a ban on dependency-ready foundation work.
+
+Freeze these interface responsibilities before app integration (names are contracts, not a requirement to introduce unnecessary classes):
+
+| Interface | Required behavior and authority |
+|---|---|
+| LiveStateSnapshot | One WAL-aware read transaction; coherent schema, leases, deliveries, attempts and freshness; missing/corrupt/unavailable distinct; never creates a missing source |
+| OfflineArtifactInspection | Only a staged, consistent, quiescent artifact with explicit identity; immutable access permitted here, never as a live-DB optimization |
+| RuntimeGuard + LeaseContext | Shared OS guard held through writable connection/runtime lifetime; transaction checks owner, scope, expiry and fence |
+| MaintenanceContext | Exclusive OS guard with bounded acquisition and process identity; transaction-visible epoch; no marker-file check-then-write substitute |
+| VerifiedBackup | Existing source, SQLite-consistent snapshot including WAL commits, verified catalog/integrity/digest, versioned manifest, unique completed artifact identity |
+
+Implement in four serial packets on storage/inspection/backup paths:
+
+1. **Live inspection:** keep a writer open with committed data exclusively in WAL. Read readiness/status/maintenance prerequisites through the same inspector. Test sidecar permission denial, active writer commit during a read, missing path, corrupt file and genuine offline snapshot. Define snapshot consistency rather than pretending a read can freeze later writers; write decisions must revalidate inside their authority transaction.
+2. **Durability:** set and verify effective `PRAGMA synchronous=FULL`, foreign keys and required WAL mode on every authority connection. Failure to obtain the required policy prevents sends/mutation. Cover runtime, migration, restore staging, recovery and operator writer factories. Intent must commit successfully before any external request. Record the filesystem/device assumptions; process termination alone does not prove power-loss persistence.
+3. **Exclusion:** acquire a real shared/exclusive OS primitive before opening writable state and retain it until all handles close. Marker metadata describes ownership but is not the lock. Use platform liveness/query APIs and process creation/boot identity where needed; PID reuse and access denied cannot authorize stale-lock removal. Test two simultaneous exclusive acquisitions, live runtime with no lease, long idle scheduler, holder death, reused PID, stale metadata and timeout. Wire the guard into actual StateStore construction, not just a separately tested context manager.
+4. **Backup primitive:** open only an existing source without schema initialization. Use SQLite backup/snapshot semantics, unique exclusive names and a same-volume staging file; verify integrity, exact catalog, schema/app/source identity and digest. Flush completed artifact data before publishing its versioned manifest last; readers ignore missing/incomplete manifests. This is recoverable two-file publication, not a claim of atomic file-pair creation. Test missing source (no file created), concurrent same-timestamp requests, existing destination, disk full, WAL-only row, permission failure and crash at every publication boundary.
+
+Exit: reviewers replay R02/R03/R05/R13 foundation cases; live readers, authority factories and the common backup primitive are accepted. C2.1–C2.5 reuse these primitives instead of independent implementations. Operations scheduling/retention and actual target durability remain later evidence obligations.
 
 #### C2.1 — Replace mutable schema checksums with an immutable migration catalog
 
@@ -803,14 +932,14 @@ Exit:
 
 Owner: Agent A  
 Backup reviewer: Agent C  
-Dependencies: C2.1
+Dependencies: C2.0, C2.1 and the accepted C2.3 authority core
 
 Work:
 
-- create and verify a pre-migration artifact before BEGIN with backup ID, SHA-256, UTC time, integrity, schema/app/source versions, and redacted config hash;
+- acquire the accepted exclusive maintenance authority and drain runtime holders first; then use the C2.0 common backup primitive to create and verify a pre-migration artifact before BEGIN with backup ID, SHA-256, UTC time, integrity, schema/app/source versions and redacted config hash;
 - abort before schema change if artifact creation/verification fails;
 - implement the process-lifetime shared runtime/exclusive maintenance execution guard and a transaction-visible maintenance epoch/fence before migration can run;
-- require a MaintenanceContext carrying the acquired exclusive guard/fence for migration and expose the fence-check API used by C2.3;
+- require a MaintenanceContext carrying the acquired exclusive guard/fence; validate its authority inside the migration transaction and immediately before commit, not only on command entry; reuse the fence-check API from the accepted C2.3 authority core;
 - provision every currently known downstream durable fact in the approved target schema, including force audit/predecessor, retry first/last/high-water/deadline/elapsed/manual-authorization fields, title-v2 identity, destination/send-option fingerprint, transition audit, and maintenance fencing;
 - install tested BEFORE INSERT/UPDATE/DELETE fences on legacy runs/sent_articles tables or an equivalently proven old-writer barrier;
 - migrate only under the exclusive maintenance guard;
@@ -821,20 +950,21 @@ Red/fault tests:
 - old v1 INSERT, UPDATE, DELETE, and INSERT OR REPLACE all fail after migration;
 - a runtime holding the shared process guard blocks maintenance; exclusive maintenance blocks new runtime startup; stale-guard recovery follows ADR-C05 and cannot bypass a live process;
 - inject failure after each SQL statement and before commit;
-- backup/manifest corruption or failure leaves source hash/schema unchanged;
+- backup/manifest corruption or failure leaves source logical data/schema unchanged; compare byte hashes only for unchanged immutable artifacts, not across legitimate WAL checkpoints;
+- superseded/missing maintenance authority at the precommit boundary rolls back all schema/ledger changes;
 - restore the manifest and prove logical equivalence to the starting fixture;
 - repeated public migrate under the verified exclusive guard is an audited no-op;
 - run the matrix on Linux and Windows.
 
 Exit:
 
-- every crash yields fully verified old or new schema; no legacy write succeeds.
+- every crash yields fully verified old or new schema; no legacy write succeeds; the real CLI migrate path is enabled only after this proof and tested for supported migration, audited no-op and fail-closed rejection (a permanent migrate-unavailable stub does not satisfy this task).
 
 #### C2.3 — Require an authorized state capability for every mutation
 
 Owner: Agent A  
 Reviewer: Agent C; Agent B reviews untrusted stored fields  
-Dependencies: C2.2 and ADR-C06
+Dependencies: C2.0, C2.1 and ADR-C06 for the authority core; C2.2 for post-migration recovery integration. Accept the authority core before C2.2 can enable real migration; this explicitly breaks the old migration/ownership dependency cycle.
 
 Work:
 
@@ -843,7 +973,7 @@ Work:
 - check scope, owner, expiry, lease fence, and the current maintenance epoch/fence in the same BEGIN IMMEDIATE transaction as every mutation and heartbeat;
 - cover delivery create/start, source results, prepare, retry, chunk begin/finish, failure, completion, reopen, and reconciliation;
 - remove/private owner-optional and compatibility mutators such as direct complete/fail paths;
-- make expired-owner reclaim and in_flight-to-ambiguous atomic;
+- re-read lease and fence inside the write transaction, then atomically reclaim and mark orphaned in_flight work ambiguous; include absent/released leases, not only expired rows;
 - heartbeat throughout collection/sending and treat heartbeat loss as fatal/unhealthy;
 - make maintenance acquisition drain/refuse all shared runtime guards; a process that opened state before maintenance cannot mutate after the fence changes;
 - keep acknowledged attempts and completed history immutable.
@@ -860,6 +990,10 @@ Red/fault tests:
 Exit:
 
 - no optional owner remains on a runtime mutator and the state transition/kill matrix passes.
+
+September acceptance detail (R01/R03/R07): maintain a mutator inventory covering start, source results, prepare, retry, heartbeat, begin/finish chunk, fail, complete, reopen and operator resolution. Runtime and maintenance operations use distinct required capabilities; bootstrap/lease acquisition uses an explicitly scoped guarded transaction, not an owner-optional compatibility path. For every entry, test missing/wrong/expired/superseded capability and unchanged logical rows. Verify that `begin_chunk` permits only the next unacknowledged chunk, checks the frozen hash/item mapping, and creates an attempt bound to run, delivery, chunk, owner and fence; `finish_chunk` must reject an attempt from any other scope. Race recovery against heartbeat renewal with deterministic barriers before repeated real-process stress.
+
+An accepted remote response followed by failed `finish_chunk` must not flow through a generic terminal finalizer that releases the only recovery signal. If persisting ambiguity also fails, stop sending, surface storage failure, and leave the previously durable intent sufficient for the next live-state inspection to block replay. A lease is coordination, not the sole record of uncertainty. C3.3 proves this through the actual app path.
 
 #### C2.4 — Repair and atomize forced generations
 
@@ -893,6 +1027,8 @@ Exit:
 
 - full force state/concurrency table passes and generation rows/history remain immutable.
 
+September acceptance detail (R06): enumerate ordinary run, run-if-due, daemon, resume and force for every terminal predecessor. Exhausting attempt or elapsed budget must not create generation N+1 on the next invocation, including after restart or midnight while unresolved work remains. A later legitimately scheduled date must follow the explicit outage/backlog policy and cannot reset the failed delivery. Only completed/completed_empty permits force; only an audited, allowlisted, one-shot operation permits terminal retry on the same generation. Also define failed collection with no frozen chunks: an explicit audited same-generation collection retry can produce its first snapshot, preserving prior attempts and granting one separate bounded manual attempt. It cannot mutate an existing frozen snapshot or reset automatic history. Test concurrent/repeated authorizations and their expiry/consumption at the transactional start boundary.
+
 #### C2.5 — Make restore exclusive, compatible, and automatically recoverable
 
 Owner: Agent A for state safety; Agent C for operational wiring  
@@ -902,10 +1038,10 @@ Dependencies: C2.2, C2.3, ADR-C13
 Work:
 
 - acquire the C2.2 exclusive process-lifetime maintenance guard, advance the maintenance fence, and prove every existing runtime process has drained;
-- refuse a live process/shared guard, active scheduler/delivery lease, or in-flight chunk; “no lease” alone is never treated as proof that the scheduler stopped;
+- refuse a live process/shared guard, active scheduler/delivery lease, or unresolved prepared/retry-wait/ambiguous/in-flight/terminal-with-unsent work in either target or source; “no lease” alone never proves drained delivery or stopped scheduling;
 - verify manifest, checksum, schema/application/source compatibility, and integrity;
 - restore to a temporary path, handle WAL/SHM consistently, apply only supported migrations there, and run maintenance_verify with the live MaintenanceContext;
-- preserve current target as a separately manifested artifact;
+- preserve the current target through the C2.0 verified backup primitive without first renaming the live path away; close all connections and settle sidecars under exclusive authority before replacement;
 - restore POSIX owner/mode and Windows ACL, failing closed if impossible;
 - atomically swap only after prechecks; run maintenance_verify again and automatically restore the original before releasing the guard if post-swap verification fails;
 - keep all schedulers/process launch disabled, release the exclusive guard, and require normal offline preflight exit 0;
@@ -918,16 +1054,20 @@ Red/fault tests:
 - live process with and without a current lease racing every guard/fence/restore boundary;
 - normal-preflight-versus-maintenance and valid/invalid MaintenanceContext truth tables;
 - crash before/after every restore step;
-- every pre-swap failure preserves target hash; post-swap failure returns exactly to original hash;
+- every failure preserves or restores verified logical state, history and unresolved-work evidence; compare artifact hashes only for byte-identical immutable files, since a valid WAL checkpoint may change database bytes;
 - portable/local owner/mode/ACL preservation tests; actual target-account/filesystem assertions are retained for C5.3–C5.5 and C6.6.
 
 Exit:
 
 - the disposable automated restore-safety/fault matrix proves maintenance verification, automatic rollback, guard release, and a final normal read-only preflight exit 0; timed scheduling/retention, target owner/mode/ACL, second-operator execution, and RPO/RTO closure belong to C5.3/CG5.
 
+September acceptance detail (R04/R13): cross source and target states (absent, clean completed, prepared, retry_wait, failed_terminal with unsent work, ambiguous, in_flight), lease states (live, expired, absent), and schema states (exact supported, explicitly migratable, newer, unknown signature, corrupt). Default refusal for unresolved work has a documented reconciliation route under maintenance authority; do not silently delete it to satisfy the precondition. A clean old backup is insufficient if Telegram sends occurred after its recovery point. Compare retained acknowledgment/uncertainty evidence and require operator reconciliation before scheduling. If the target is lost/corrupt and that evidence is unavailable, restore into a delivery-disabled recovery state and require reconciliation; do not claim safe replay from missing evidence.
+
+Stage on the target volume, verify exact migration catalog and common manifest format, restore permissions, and activate with one supported atomic replacement after closing Windows/SQLite handles. Persist a recoverable operation record for staged/published/postcheck/rollback phases. Inject faults before and after each boundary, including failed rollback; any indeterminate outcome retains exclusive/recovery blocking, leaves scheduling disabled and names the preserved artifacts. A process restart must consult the recovery record before opening normal writable state. Re-run live WAL-aware preflight after releasing maintenance; re-enable scheduling only as a separately evidenced operator action.
+
 #### Closure Gate CG2
 
-- C2.1–C2.5 independently reviewed;
+- C2.0–C2.5 independently reviewed, including common backup publication, effective FULL policy and actual runtime guard wiring;
 - full migration fixture/crash matrix and 50-process lease test pass;
 - original generation, non-owner, legacy-write, and active-restore probes pass;
 - no runtime compatibility API bypasses ownership;
@@ -968,6 +1108,8 @@ Exit:
 
 - complete transport-stage × envelope decision table passes.
 
+September acceptance detail (R08): success requires `ok is True`, a correctly shaped result, a positive integer `message_id` excluding booleans, and destination fields that match the expected request under the documented API contract. Never coerce null/string/bool IDs or use truthiness for `ok`. Test `ok: "false"`, `ok: 1`, `message_id: null/true/"1"/0/-1`, missing/result-list fields, wrong chat/thread, empty JSON, duplicate/invalid JSON and oversized bodies. A malformed apparent success after transmission is ambiguous; only a validated explicit negative can establish non-acceptance. Retain the request count, received response class and persisted classification for every fake-server case. No live bot is needed for this matrix.
+
 #### C3.2 — Bound and persist retry decisions
 
 Owner: Agent B for policy; Agent A for persisted fields  
@@ -976,7 +1118,7 @@ Dependencies: C3.1, CG2, and the C2.2 persisted retry/clock fields
 
 Work:
 
-- clamp retry_after to configured and non-disableable hard maximum;
+- validate retry_after and never send earlier than a valid server-requested delay; if it exceeds a hard delay or elapsed budget, stop automatic retry with a visible reason rather than clamp it downward and send early;
 - independently cap attempts, per-delay backoff, and max_elapsed_seconds;
 - persist first-attempt UTC, last-observed UTC high-water mark, exact next deadline, attempt count, automatic elapsed consumption, and manual-authorization deadline;
 - use monotonic time within a process; after restart, a backward wall-clock jump beyond the approved tolerance transitions to needs_attention/clock_rollback and schedules no automatic retry, while a forward jump consumes/exhausts the existing budget;
@@ -997,6 +1139,8 @@ Exit:
 
 - retry timing cannot exceed any configured/hard budget.
 
+Cross attempt and elapsed exhaustion with C2.4's invocation matrix. Capture generation, attempt count, first-attempt time, exact deadline and remote request count before and after every restart. Restart must preserve the frozen retry policy; configuration edits cannot enlarge its budget. Malformed negative/overflow retry_after follows the transport certainty table and a bounded safe policy, never an unchecked sleep. Test clock rollback/forward jump, manual permit expiry, kill switch, storage failure while scheduling a retry and a request that consumes the last available attempt.
+
 #### C3.3 — Freeze outbox identity and audited reconciliation
 
 Owner: Agent A  
@@ -1006,7 +1150,7 @@ Dependencies: C2.4, C3.1, C3.2
 Work:
 
 - freeze item order, final HTML, raw payload hash, delivery/chunk ID, item-to-chunk mapping, and a non-secret DeliveryTargetSnapshot before send;
-- bind the target snapshot to the bot's public identity, a versioned HMAC fingerprint of chat/thread destination, approved API endpoint class, parse mode, link-preview/send options, and delivery-policy/config hash; never persist the token, HMAC key, or raw secret destination;
+- bind the target snapshot to the bot's public identity, a versioned HMAC fingerprint of chat/thread destination, approved API endpoint class, parse mode and link-preview/send options; store the frozen retry policy and general configuration digest separately as policy/provenance, not as a source/ranking-sensitive destination comparison; never persist the token, HMAC key, or raw secret destination;
 - manage the destination-fingerprint key separately from the Telegram token; new deliveries use the current key version, prior key versions remain available only until every unresolved snapshot using them is terminal, and a missing/unknown key version becomes needs_attention rather than triggering snapshot mutation;
 - before every send/recovery, resolve and validate the current bot identity and recompute the target fingerprint; any bot/chat/thread/endpoint/send-option mismatch becomes needs_attention and sends nothing;
 - include a visible deterministic delivery/chunk identifier on every content chunk and coverage/note message;
@@ -1031,6 +1175,10 @@ Exit:
 
 - immutable outbox and reconciliation state machine passes every CL2/CL3 kill point.
 
+September acceptance detail (R01/R07/R12): use the actual app orchestration with a fake Telegram endpoint and disposable SQLite. Cross accepted response with failure at acknowledgment execute/commit/rollback/finalization/lease release, then restart with live/expired/absent lease. The endpoint must receive exactly one request for that chunk; later chunks/new generations remain blocked unless durable acknowledgment or audited resolution establishes safety. Include failure to persist the pre-send intent (zero requests), failure to persist the fallback ambiguity, and a second invocation while storage is still unavailable. Catch-all failure handlers may not erase uncertainty.
+
+Prepare at least two chunks, fail a retry-safe first attempt, edit only `minimum_score` or source configuration, then resume. Exact stored bytes, mappings, destination and prior budget must be reused. For a true target mismatch, provide a documented audited operation that either restores the original target for continuation or abandons unresolved unsent work with preserved evidence before separately authorized new delivery. Ambiguous/sent chunks require their existing reconciliation; do not add a general “rewrite snapshot” shortcut. Test that an operator can exit the mismatch state without manual SQL even when there is no ambiguous chunk to resolve.
+
 #### C3.4 — Make scheduler outcomes, reload, and time deterministic
 
 Owner: Agent C  
@@ -1040,7 +1188,7 @@ Dependencies: C3.2, C3.3, C1.3, ADR-C09
 Work:
 
 - return and consume typed success/skip/retry_wait/attention/terminal outcomes;
-- resolve the effective config path once and reload that path each cycle, including default/MECO_CONFIG cases;
+- resolve the effective config path once and reload/validate immediately before executing work after every wait, including default/MECO_CONFIG cases; a config loaded before a long sleep is not the execution config;
 - swap config only after full validation and record its hash;
 - block new collection on invalid reload; allow recovery of already-frozen outbox policy only when the current validated credentials/destination/send options match its DeliveryTargetSnapshot;
 - recover incomplete/due work before planning a new date;
@@ -1059,6 +1207,8 @@ Tests:
 Exit:
 
 - daemon cannot swallow terminal/attention state and all restart/time matrices pass.
+
+September acceptance detail (R20): define a typed-outcome dispatch table showing next wake, exit/continue behavior, health and alert effect for success/skip/retry_wait/attention/terminal. An ignored result assignment is not consumption. Heartbeat and revalidate ownership/fence before each chunk; renew during bounded waits and collection supervision. SIGTERM/Windows stop handling sets a stop request, prevents new collection/send, gives a bounded grace period, reaps workers and closes handles. If transmission may have occurred, preserve in-flight/ambiguous recovery evidence rather than label the send safely retryable. Test real child-process shutdown before intent, during request, after remote acceptance and between chunks; a signal handler only sets state, with durable finalization performed on the normal control path. Target process/scheduler shutdown proof remains C5/C6 evidence.
 
 #### C3.5 — Implement explicit zero/outage/degraded/dry outcomes
 
@@ -1178,6 +1328,8 @@ Exit:
 
 - no entity expands/accesses a resource; MemoryError is never labeled ordinary parse error.
 
+September acceptance detail (R14): validate an expected RSS root/channel or Atom namespace/feed structure, and require a GDELT object with an `articles` list. Record syntactic parse, document validity and individual-record quarantine separately. Fixtures include valid empty RSS/Atom/GDELT, XHTML challenge/outage, arbitrary well-formed XML, missing/wrong-type articles, malformed records mixed with healthy records, and every record quarantined. Define source and overall collection outcomes explicitly so invalid documents cannot produce a healthy completed-empty notice. Keep schema validation bounded and preserve a healthy sibling source. C3.5 replays these cases through collection-to-outbox/status behavior after parser integration.
+
 #### C4.4 — Enforce hard source deadlines with killable isolation
 
 Owner: Agent B  
@@ -1204,6 +1356,10 @@ Tests:
 Exit:
 
 - no source can delay the run beyond the reviewed bound or outlive its supervisor.
+
+September acceptance detail (R19): assign separate monotonic queue-wait, launched-source execution and whole-cycle deadlines, with approved finite defaults/maxima in ADR-C20. Record queued/started/completed times and whether a job expired unstarted or while executing. A total cycle cap may legitimately prevent a job starting; report that truthfully and use a deterministic fair order so the same late sources do not starve every cycle. Bound IPC frame size and incremental receipt/deserialization time; `poll()` before an unbounded `recv()` is insufficient. The supervisor must remain able to renew leases, process stop requests and reap children while a worker writes a partial frame.
+
+Use ten source jobs/two slots, slow first jobs plus healthy later jobs, worker crash, partial/oversized frame, stalled writer, MemoryError and cycle expiration. Assert source/cycle time bounds with documented scheduling tolerance, parent memory bounds, distinct reason codes, preserved healthy results and no live descendants/open pipes after termination. Repeat the next cycle and vary launch order/hash seed. Fake clocks cover decision boundaries; real spawned-process tests cover actual IPC blocking and cleanup on both supported OS families.
 
 #### C4.5 — Make identity, merge, and fuzzy dedup deterministic and bounded
 
@@ -1238,6 +1394,8 @@ Exit:
 
 - canonical selected output and payload inputs are byte-identical across order/hash seed and every work counter is exact/bounded.
 
+September acceptance detail (R15): represent processed-kept, processed-confirmed-duplicate and unprocessed candidates distinctly. At exhaustion, never add a confirmed duplicate back to output. Replay the review's duplicate pair at comparison budgets 0, 1, exact required budget and boundary+1, then combine it with a later exhaustion trigger and healthy unrelated story. Enumerate small input permutations and seeded larger fixtures. Assert output identities/order, comparison counts, exhaustion reason and healthy retention rather than internal source text. A change to fuzzy grouping must retain exact dedup/history behavior and cannot expand work beyond the frozen hard budget.
+
 #### C4.6 — Guarantee final Telegram payload and per-item isolation
 
 Owner: Agent B  
@@ -1262,6 +1420,8 @@ Property tests:
 Exit:
 
 - full message property suite and outbox/history mapping pass.
+
+September acceptance detail (R16): emit literal `·` or a numeric entity instead of `&middot;`, consistent with the [Telegram HTML contract](https://core.telegram.org/bots/api#html-style). Compute final raw-byte and UTF-16-unit sizes after delivery/chunk ID, continuation prefix, escapes, tags, separators and coverage notes are reserved. Include the review's 900-unit build with a URL suffix of 715 characters, first/continuation/final chunks, astral Unicode, escaped quotes/ampersands and numbering-width changes. Omit only an item that cannot fit safely; retain healthy siblings and exact item-to-chunk history mapping. If every item is omitted, produce the documented zero/quarantine outcome rather than claim sent content. Local contract verification is not a claim that the live API rejected the old named entity.
 
 #### C4.7 — Run the full adversarial application corpus
 
@@ -1344,6 +1504,8 @@ Work:
 Proof:
 
 - retention boundary tests, backup/off-host receipts, and two-operator RPO/RTO report.
+
+September operations detail: C5.3 reuses C2.0's single backup manifest/parser for routine, migration and restore artifacts. Add an idempotent scheduled backup operation with non-overlap, off-host checksum receipt, last-success age and independent overdue/failure alert. Retention tests span daily/weekly/monthly boundaries, interrupted upload and deletion failure; never remove the only verified restore point or an artifact referenced by unresolved recovery. State/history pruning uses an explicit transaction and dry preview, preserving unresolved deliveries, audit/reconciliation records and the approved dedup horizon. A second operator must restore a selected retained backup, reconcile post-backup sends, measure RPO/RTO and leave exactly one scheduler. Evidence must include the alert's arrival and recovery receipt; a local log line does not prove notification.
 
 #### C5.4 — Harden Linux/NAS deployment and prepare its target gate
 
@@ -1430,7 +1592,7 @@ Production deployment allowed: **no**; CG6 creates one rollout-eligible signed c
 
 Owner: domain agents for their code; Coordinator for harness  
 Reviewer: outside each domain  
-Dependencies: stable contracts from CG1–CG5
+Dependencies: C0.4 for initial safe harness; accepted interfaces as each domain integrates; complete CG1–CG5 contracts for final acceptance. Harness work begins in C0, not after all implementation waves.
 
 Required checked-in layers:
 
@@ -1505,11 +1667,12 @@ Dependencies: container build available
 Work:
 
 - retain the textual .dockerignore check as a fast lint;
-- create unique secret canaries in ignored root/subdirectory/config/env-like locations;
+- create unique synthetic secret canaries in ignored root/subdirectory/config/env-like locations only within a dedicated disposable context copied from the identified source; never plant them in the working checkout or overwrite existing files;
 - implement inspection of actual context transfer/build input, BuildKit records where available, image filesystem, layer tar/history, metadata, and running container;
 - assert no canary, VCS secret, evidence secret, env file, state DB, backup, or local config enters any layer;
 - verify multi-stage cleanup cannot hide a secret in a lower layer;
-- remove canaries after the test and prove repository cleanliness.
+- remove only uniquely created canaries after retaining evidence and prove the caller checkout and pre-existing synthetic fixtures remain unchanged;
+- treat unavailable daemon/inspection permissions as Blocked, not a text-matcher fallback pass; both actual context and all image layers must be observed to satisfy their checks.
 
 Exit:
 
@@ -1524,7 +1687,7 @@ Dependencies: CG5, C6.1–C6.4, and C0.1
 
 Work:
 
-- from a clean protected signed source tag, place unique ignored canaries, capture the actual context, and build exactly one candidate image/artifact set;
+- export a clean protected signed source tag into a dedicated disposable build context, verify its tracked-file manifest, place unique ignored synthetic canaries there, capture actual context, and build exactly one candidate image/artifact set;
 - run the C6.4 verifier against that exact candidate digest, including context, BuildKit record, every layer/history entry, filesystem, metadata, and runtime; retain the report hash and remove ephemeral canaries only after evidence capture;
 - reject and never sign/promote the candidate if any context/layer/runtime proof fails; a fix requires a new reviewed source tag and a new candidate;
 - bind source commit/tag, app version, lock/build-input hashes, context-report hash, base/final image digests, wheel/sdist hashes, schema compatibility, migration/backup steps;
@@ -1548,13 +1711,13 @@ Work:
 - retain approved target-host reports; a CI/container inspection or earlier test-artifact run is not target evidence;
 - replay every original audit reproducer;
 - run standard repository security scan plus dependency, secret, filesystem, and image scans;
-- read back every F-### issue against test, review, scan, and artifact evidence;
+- read back every F-###, R01–R20 and additional Section 7.2 issue against exact-candidate test, review, scan, target and artifact evidence;
 - reject missing, stale, mismatched-digest, or self-approved evidence;
 - record every allowed waiver with owner, compensation, expiry, and approval.
 
 Exit:
 
-- zero unwaived high/critical findings; all F-001–F-027 are closed or F-028 alone remains rollout-evidence-open.
+- zero unwaived high/critical findings; F-001–F-027, R01–R20 and all non-rollout Section 7.2 obligations are closed with accepted exact-candidate evidence. Only F-028 and its explicitly linked rollout/observation evidence remain open.
 
 #### Closure Gate CG6
 
@@ -1565,6 +1728,7 @@ Exit:
 - both Linux/NAS and Windows pass the full protocol with the exact signed candidate;
 - SBOM, provenance, signature, checksum, compatibility, and scans bind one immutable digest;
 - source, operations, security, and release approvers accept the candidate;
+- every R01–R20 correction and non-rollout Section 7.2 obligation is independently closed for this candidate before any shadow/canary/cutover authorization; no current finding is deferred until CG7 merely because its historical task mapping exists;
 - the same candidate is the only artifact eligible for Closure Wave 7.
 
 ---
@@ -1690,7 +1854,7 @@ Work:
 - C7.1 shadow, C7.2 canary, C7.3 rollback rehearsal, C7.4 cutover, and C7.5 observation are approved for the exact CG6 digest;
 - every rollout incident is closed and affected gates rerun;
 - F-028 closes;
-- all 28 finding rows are Closed;
+- F-001–F-028, R01–R20 and every additional mandatory issue in Section 7.2 are Closed with source-matching evidence;
 - named business, operations, security, and release approvers sign the evidence index.
 
 Only CG7 permits the production-ready status.
@@ -1699,17 +1863,17 @@ Only CG7 permits the production-ready status.
 
 ## 11. Parallel execution schedule
 
-The coordinator dispatches only dependency-ready work and uses file locks from Section 8.
+The coordinator dispatches only dependency-ready work and uses file allocations from Section 8. Waves identify domains; the dependency sequence below controls implementation. Early foundation/harness work does not claim a later release gate is closed. Reuse verified existing implementation; do not redo a task merely because its historical wave is open.
 
 | Phase | Agent A | Agent B | Agent C | Coordinator serialization |
 |---|---|---|---|---|
-| C0 | State/schema audit reproducers and transition tables | Hostile corpus builders and expected reasons | Control/ops/release evidence protocols | Source/decisions/status; no production implementation |
-| C1 | Read-only schema/status query interface and health state fixtures | Unicode/URL/XML corpus only, no production edits | C1.1, C1.2, C1.4; then integrate C1.3 | Own app.py and preflight integration |
-| C2 | C2.1 → C2.2 → C2.3 → C2.4 serially | Review stored untrusted fields; prepare identity migration design | Restore operational requirements; C2.5 after state API freezes | Approve schema/state machine before retry work |
+| Safety/baseline | C0.3 state/schema red fixtures and transition table | Review C0.4; prepare transport/content fixtures | C0.4 disposable context repair; bootstrap C6.1 safe harness | Record source/dirty-state identity, current R/F ledger, relevant decisions; preserve user work |
+| Foundations/control | C2.0 live reads/FULL/OS guard/backup; C2.1 catalog | C3.1 envelope proof and disjoint parser/dedup fixtures | C1.1/C1.4; integrate C1.2/C1.3 after live inspector freezes | Own app.py; review interfaces; CG0 then integrated CG1 after foundations |
+| Authority/recovery | C2.3 authority core → C2.2 migration → C2.3 recovery → C2.4 → C2.5 | Non-author state counterexamples and disjoint transport/content work | Review guards/restore/control matrices; no concurrent backup.py editing | Confirm CLI migration is enabled only after its safety proof; replay CG1 then close CG2 |
 | C3 | C3.3 and persisted portion of C3.2 | C3.1 and transport-policy portion of C3.2 | C3.4 and C3.5 observability/docs | Integrate app.py/config; resolve interfaces |
 | C4 | Identity/history migration support and state review | C4.1 → C4.6 serial by overlapping files; C4.7 | Prepare platform egress protocols, no claim of target pass | Freeze model/persistence boundary |
 | C5 | Restore/backup drill and state review | Egress/security review and corpus replay | C5.1–C5.6, hardening and target harnesses | Coordinate production-like hosts/approvals |
-| C6 | Concurrency/migration/recovery CI and evidence review | Security/property/fake-server CI and rescan | Package/container/CI/release pipeline | Run full matrix and issue readback |
+| C6 | Concurrency/migration/recovery CI and evidence review | Security/property/fake-server CI and rescan | Finish early C6.1/C6.2 harness work; package/context/release pipeline | Run full matrix and issue readback; exact-candidate target replay |
 | C7 | Evidence review only | Evidence review only | Operations evidence support | Sole rollout integration/external-write authority |
 
 Allowed parallelism never overrides:
@@ -1723,30 +1887,52 @@ Allowed parallelism never overrides:
 - no canary before RA-C and no production cutover before RA-P;
 - no canary/cutover using a rebuilt or mismatched artifact.
 
+### 11.1 First executable packets and dependency exits
+
+| Packet | Goal / findings | Implementer → reviewer | Dependency / concrete handoff |
+|---|---|---|---|
+| P00 Safe test runner | G6 / R10 | C → B | C0.4; safe fixture preservation proof, explicit blocked-Docker behavior, full-suite safety go/no-go |
+| P01 Snapshot and transition inventory | G0/G2 / R01–R07, R12–R13 | A → C | Read-only now; versioned states/mutators/authority/backup map plus reduced red probes; no application edits until file allocation |
+| P02 Live read and durable guard foundation | G1/G2 / R02/R03/R05 | A → C | P00 + accepted interfaces; C2.0 live-WAL/FULL/OS-lock tests and actual StateStore wiring |
+| P03 Common backup and catalog | G2/G5 / R13, historical F-006 | A → C | P02; verified snapshot/manifest publication and exact catalog consumed by migration/restore |
+| P04 Ownership and uncertainty recovery | G2/G3 / R01/R07 | A plus coordinator app integration → C/B respectively | P03; every mutator guarded, missing-lease uncertainty retained, fake-endpoint one-request proof |
+| P05 Migration and restore | G2/G5 / R03/R04 | A → C | Accepted authority core; old-writer fence + commit checks, CLI migration enablement, restore crash/reconciliation matrix |
+| P06 Generations/retry/destination | G3 / R06/R08/R12 | A persistence, B transport, coordinator app integration → non-author per subpacket | CG2 before automatic-send integration; envelope unit proof may start early; no ordinary budget reset, frozen resume, audited target resolution |
+| P07 Truthful operator interface | G1/G5 / R09/R11/R17/R18 | C plus coordinator app integration → B/A respectively | P02 for final live tests; safe grammar/logging fixtures earlier; actual subprocess JSON/state/exit matrix |
+| P08 Source/content boundaries | G4 / R14/R15/R16/R19 | B → A | Disjoint fixtures early; state/history interface frozen before integration; source-shape, dedup, final-render and bounded-process evidence |
+| P09 Scheduler integration | G3 / R20 | C plus coordinator app integration → A | P06/P07; coordinate P08 supervisor interface; typed-outcome, immediate reload, per-chunk ownership and stop/restart proof |
+| P10 Operational and release proof | G5/G6/G7 / Section 7.2 and remaining F rows | C/Coordinator → domain reviewer plus actual human approvers | Core gates; clean unrelated-directory artifact tests, full CI/coverage, both target protocols, alert/restore, signed promotion and rollout |
+
+Split mixed-author rows into independently reviewed subpackets with disjoint files; this table never grants two simultaneous editors of app.py/storage.py/telegram.py. P04 can establish the uncertainty-preserving state path before CG2; its full send integration and final proof are repeated in P06/C3.3 after CG2. C3.5 initially uses typed source-result fixtures; R14 integration reruns it after C4.3. C6.1 starts with P00 and matures throughout, so test infrastructure never waits for the code it is needed to verify.
+
 ---
 
 ## 12. Verification command contract
 
-These are intended final commands. A command is not evidence until its exit code, tool versions, source commit, environment, output artifact, and hash are retained. Future scripts named here must be created and reviewed by their task; their current absence is not a pass.
+These are intended commands/protocols, not results from editing this plan. Use the project's provisioned interpreter (`.venv/Scripts/python.exe` on this checkout) and record its version/path. A command is not evidence until its exit code, tool versions, source fingerprint, environment, output artifact and hash are retained. Future helpers named here must be created/reviewed by their task; their absence is not a pass. C0.4 is mandatory before invoking any full suite that contains the current unsafe context test.
 
 ### 12.1 Fast local loop
 
-- python -m pytest -q followed by the focused test path
+- python -m pytest -o addopts='' -q path/to/reviewed_focused_test.py (replace the placeholder with the packet's actual safe test path)
 - python -m ruff format --check .
 - python -m ruff check .
 - python -m mypy meco_news
 
+After C0.4, integrated batches run `python -m pytest -o addopts='' -q` with reviewed temporary fixtures. Before C0.4, only explicitly inspected safe focused tests or the documented audit command with `--deselect=tests/test_c06_context.py::TestContext::test_verify_with_context` may run; retain the deselection and original failure. Do not claim a complete pass with that omission.
+
 ### 12.2 Coverage gate
 
-- python -m coverage erase
-- python -m coverage run --branch -m pytest
-- python -m coverage report --show-missing --fail-under=90
-- a reviewed critical-branch checker must enforce 100% on the decision sets listed in C6.1
+- choose a new evidence directory for this source/iteration; retain the old coverage result instead of erasing it;
+- configure coverage for spawned children before running the suite; validate collection with a behavior executed only inside a child, then combine only matching-source/OS/runtime data under the declared coverage policy;
+- run `python -m coverage run --branch -m pytest -o addopts='' -q` after C0.4, with its data-file path explicitly set to the new evidence directory;
+- retain report and JSON output, enforce the combined `--fail-under=90` check, and additionally check statement and branch percentages separately at ≥90%; a combined percentage alone cannot certify both;
+- a reviewed critical-branch register/checker maps the C6.1 decision sets to source locations and behavioral cases, enforcing 100% of their feasible required branches with justified exclusions individually reviewed;
+- fail on missing expected child coverage, unknown exclusions, mandatory skipped/xfail cases or source-manifest mismatch; publish denominators, misses and exclusions as well as percentages.
 
 ### 12.3 Build/package gate
 
 - python -m build
-- install wheel into a clean environment and run version, CLI, preflight, dry-run, and status smoke
+- build in a provisioned clean environment; install wheel and sdist separately into clean environments, change to unrelated directories with no checkout on import paths, verify installed-module paths, and run version/CLI/preflight/dry-run/status with explicitly provisioned synthetic config/input/state
 - verify transitive hash-locked runtime/development installs
 
 ### 12.4 Platform/container gate
@@ -1823,7 +2009,7 @@ Sensitive raw evidence remains in an approved restricted store. The repository c
 
 Issue template:
 
-- Finding: F-###
+- Finding: Rxx and/or F-### (preserve both cross-links when applicable)
 - Closure task: C#.#
 - Contract/invariant:
 - Current lifecycle state:
@@ -1845,8 +2031,8 @@ Issue template:
 
 | Gate | Required result | Minimum independent approval | Unlocks |
 |---|---|---|---|
-| CG0 | Provenance/decisions/reproducers/evidence schema complete | Owner plus all domain reviewers | Control-plane implementation |
-| CG1 | CLI/preflight/health/logging truthful and side-effect-safe | Agents A and B | State integration |
+| CG0 | Current source/decisions/reproducers/evidence schema reconciled; C0.4 verification safety accepted | Owner plus all domain reviewers | Dependent integrated implementation; isolated safety/fixture work may start earlier |
+| CG1 | CLI/preflight/health/logging truthful, using accepted C2.0 live-read foundations | Non-author domain reviewers | Control-plane acceptance; C2 foundation work does not wait for this gate |
 | CG2 | Migration/lease/generation/restore state invariants pass | Agent C plus Coordinator | Automatic retry/outbox integration |
 | CG3 | Ambiguity/retry/outbox/scheduler/outcomes pass | Agents B/C and Coordinator | Content/security cumulative integration |
 | CG4 | Hostile-input/determinism/message application security passes | Agent outside each implementation packet | Operations/platform validation |
@@ -1866,6 +2052,7 @@ A failed later gate reopens every upstream task whose invariant could have cause
 ### Finding closure
 
 - [ ] F-001 through F-028 each have red proof, implementation, cumulative verification, independent review, evidence, and closure decision.
+- [ ] R01 through R20 and Section 7.2 obligations each have an explicit evidence/closure record; historical receipts are linked or superseded without being misrepresented as current.
 - [ ] No mandatory issue is hidden as a duplicate, documentation note, TODO, or untracked residual risk.
 - [ ] Every original audit probe and every implementation-audit probe passes against the release candidate.
 
@@ -1876,6 +2063,9 @@ A failed later gate reopens every upstream task whose invariant could have cause
 - [ ] Every state mutation has transaction-local authority.
 - [ ] Migration, force, outbox, scheduler, and restore state machines pass their full tables and crash matrices.
 - [ ] Confirmed chunks never auto-replay; ambiguity never auto-retries.
+- [ ] A failed acknowledgment commit and an absent lease cannot hide uncertainty or create a fresh automatic generation.
+- [ ] Live WAL state is visible or explicitly unavailable; every authoritative writer verifies FULL; actual writable connections hold the required OS guard.
+- [ ] Restore preserves/reconciles unresolved and post-backup send history; missing sources and partial backup publication cannot appear successful.
 - [ ] Retry delay, attempts, and elapsed time are durably bounded.
 - [ ] Zero, outage, degraded, dry, retry, attention, and terminal outcomes remain distinct.
 
@@ -1891,7 +2081,7 @@ A failed later gate reopens every upstream task whose invariant could have cause
 
 ### Operations and platforms
 
-- [ ] Structured stdout logs, exactly-one terminal events, status, health, metrics, and independent alerts pass injected failures.
+- [ ] Normal stdout JSONL logs and single-document JSON reports follow the stream contract; message/field/worker redaction, exactly-one terminal events, status, health, metrics and independent alerts pass injected failures.
 - [ ] Backup scheduling/retention/off-host receipts and restore drills meet approved RPO/RTO.
 - [ ] Both Linux/NAS and Windows pass identity, storage, ACL/mode, egress, scheduler/signal, architecture, and recovery validation.
 - [ ] A second operator successfully executes critical runbooks.
@@ -1903,6 +2093,7 @@ A failed later gate reopens every upstream task whose invariant could have cause
 - [ ] License, ownership, Python support, version, metadata, dependencies, and transitive hash locks are consistent and approved.
 - [ ] Protected source/tag and reviewed change history exist.
 - [ ] One immutable candidate has SBOM, scans, provenance, signatures, checksums, and compatibility manifest.
+- [ ] Context/canary tests cannot overwrite caller data; actual context and all layers are inspected, positive controls fail, and installed wheel/sdist smoke runs outside the checkout.
 
 ### Rollout
 
@@ -1944,16 +2135,16 @@ Do not work around a stop condition by deleting evidence, weakening a test, incr
 
 ## 17. Initial dispatch order
 
-After this plan is accepted:
+When implementation begins, use the reviewed working tree rather than resetting to the historical snapshot:
 
-1. Coordinator executes C0.1/C0.2 and creates the F-### ledger.
-2. Agent A receives a C0.3 packet for schema/state/force/lease/restore red fixtures only.
-3. Agent B receives a C0.3 packet for Unicode/XML/URL/deadline/dedup/Telegram hostile fixtures only.
-4. Agent C receives a C0.3 packet for CLI/preflight/health/logging/platform/release evidence protocols only.
-5. Coordinator reviews all reproducers, freezes required ADRs, and closes CG0.
-6. Agent C starts C1.1/C1.2/C1.4; Agent A supplies the read-only schema/status interface for C1.3; Agent B remains on disjoint hostile-corpus preparation.
-7. After CG1, Agent A owns the serialized C2.1→C2.4 state chain; restore C2.5 begins only after the maintenance/state API freezes.
-8. Only after CG2 do Agent A and Agent B integrate outbox/retry work, with Agent C implementing scheduler/health integration and the coordinator owning app.py.
-9. Continue Closure Waves 3–7 and loops CL0–CL9 until zero mandatory findings remain.
+1. Coordinator fingerprints the existing commit and user changes, reconciles the current R/F ledger and historical receipts, and records implementation assumptions separately from unresolved owner decisions.
+2. Dispatch P00 to Agent C with Agent B as reviewer; do not run the unsafe full suite first. Agent A prepares P01 read-only state/mutator/transition inventory concurrently.
+3. Bootstrap the safe C6.1 harness, replay/reduce the September probes, and freeze the interfaces/ADRs required by the next packets. Existing good tests/code remain in place; behavioral evidence determines what needs repair.
+4. Start A's P02/P03 foundations; C works on disjoint grammar/logging/input contracts; B prepares/reviews transport and hostile-content cases. Coordinator owns shared app integration and closes CG0 from actual evidence.
+5. Integrate C1 with the accepted live inspector; finish the serial authority/migration/recovery/restore chain in Section 11. Re-run CG1 against final state semantics and close CG2 only when all ownership/durability/restore proofs pass.
+6. Integrate P06 outbox/retry/target semantics, P07 operator truthfulness and P09 scheduler behavior under the frozen interfaces; B completes P08 in serialized content/transport subpackets. Re-run affected earlier gates after each structural change.
+7. Complete C5 operations and both supported target protocols, then the full C6 CI/coverage/artifact/exact-candidate verification. Missing local Docker or target access remains explicitly blocked until a suitable environment supplies evidence.
+8. Seek only the human operational/release decisions actually required by the existing RA-S/RA-C/RA-P contracts, with concrete digest-bound evidence ready for review. The plan edit itself does not authorize implementation on live data or rollout.
+9. Continue bounded CL0–CL9 iterations and C7 observation until every mandatory current/historical obligation closes. Stop dependent actions on failed safety invariants; continue useful unrelated work.
 
 No agent self-closes a task. The coordinator closes only from retained evidence and an independent review.

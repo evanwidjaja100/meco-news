@@ -55,6 +55,14 @@ def _ascii_hostname(hostname: str) -> str:
         raise URLPolicyError("invalid_hostname") from exc
 
 
+def _safe_scalar(value: object) -> str:
+    """Return text that can be safely encoded and used in identity fields."""
+
+    if not isinstance(value, str):
+        return ""
+    return "".join("\ufffd" if 0xD800 <= ord(char) <= 0xDFFF else char for char in value)
+
+
 def _validate_port(parts: SplitResult) -> tuple[int, bool]:
     try:
         port = parts.port
@@ -106,6 +114,8 @@ def validate_url(
         raise URLPolicyError("url_not_string")
     if not value or len(value) > max_length:
         raise URLPolicyError("url_too_long" if value else "empty_url")
+    if any(0xD800 <= ord(char) <= 0xDFFF or char == "\ufffd" for char in value):
+        raise URLPolicyError("url_unicode_scalar")
     if _CONTROL_RE.search(value):
         raise URLPolicyError("url_control_character")
     if value.strip() != value:
@@ -151,6 +161,49 @@ def validate_url(
         netloc = f"{netloc}:{port}"
     normalized = urlunsplit((scheme, netloc, path.rstrip("/") or "/", urlencode(query_pairs), ""))
     return ValidatedURL(normalized, scheme, hostname, raw_hostname, port, explicit_port)
+
+
+def canonical_url(value: object) -> str:
+    """Canonicalize URL identity without performing a network request.
+
+    Collection boundaries validate article URLs before constructing a
+    ``NewsItem``.  This helper is intentionally total as well: callers that
+    handle partially trusted or legacy records get a deterministic, scalar-
+    safe key rather than an exception from ``urlsplit`` or ``urlencode``.
+    """
+
+    raw = _safe_scalar(value)
+    if not raw:
+        return ""
+    try:
+        parts = urlsplit(raw)
+        scheme = parts.scheme.casefold()
+        hostname = parts.hostname or ""
+        try:
+            hostname = _ascii_hostname(hostname)
+        except URLPolicyError:
+            hostname = _safe_scalar(hostname).casefold().rstrip(".")
+        if not hostname:
+            hostname = _safe_scalar(parts.netloc).casefold()
+        try:
+            port = parts.port
+        except ValueError:
+            port = None
+        netloc = hostname
+        if ":" in hostname and not hostname.startswith("["):
+            netloc = f"[{hostname}]"
+        if port is not None and not ((scheme == "https" and port == 443) or (scheme == "http" and port == 80)):
+            netloc = f"{netloc}:{port}"
+        query_pairs = [
+            (key, item)
+            for key, item in parse_qsl(parts.query, keep_blank_values=True)
+            if not key.casefold().startswith("utm_") and key.casefold() not in TRACKING_PARAMETERS
+        ]
+        query_pairs.sort(key=lambda pair: (pair[0].casefold(), pair[1]))
+        path = _safe_scalar(parts.path).rstrip("/") or "/"
+        return urlunsplit((scheme, netloc, path, urlencode(query_pairs), ""))
+    except (TypeError, UnicodeError, ValueError):
+        return raw
 
 
 def validate_resolved_addresses(
