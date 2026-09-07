@@ -333,6 +333,78 @@ def healthcheck(
     if active.get("state") == "completed_empty":
         # completed_empty is healthy — no action, but explicitly handled for C3.5 test
         pass
+    # F05: abandoned active work must never report healthy. A non-terminal
+    # delivery the scheduler stopped touching is stuck, not waiting: no
+    # future timer revives pre-retry states, and an exhausted retry budget
+    # is one run_once would fail terminal with zero sends. Age is measured
+    # from the last observed activity (delivery start or latest attempt),
+    # so actively retried work with attempts left stays healthy. Every
+    # non-terminal row is evaluated, not just the newest, so old stuck
+    # work cannot hide behind a newer delivery. needs_attention already
+    # fails health above and is excluded to keep one stable reason. A
+    # future-dated activity (broken clock) is unevaluable and skipped: a
+    # broken clock must not flip health on its own.
+    abandoned: dict[str, Any] | None = None
+    try:
+        with StateStore(path, readonly=True) as work_store:
+            work_connection = getattr(work_store, "connection", None)
+            if work_connection is None:
+                # Duck-typed store substitutes expose status snapshots but
+                # no read connection; without activity data there is no
+                # abandonment evidence to report.
+                stuck_rows = []
+            else:
+                stuck_rows = work_connection.execute(
+                    "SELECT d.delivery_id, d.state, d.started_at, MAX(a.started_at) "
+                    "FROM deliveries d LEFT JOIN delivery_attempts a "
+                    "ON a.delivery_id = d.delivery_id "
+                    "WHERE d.state IN ('collecting','prepared','prepared_empty','sending','retry_wait') "
+                    "GROUP BY d.delivery_id ORDER BY d.delivery_id"
+                ).fetchall()
+            for stuck_row in stuck_rows:
+                stuck_id = int(stuck_row[0])
+                stuck_state = str(stuck_row[1])
+                try:
+                    activity = max(
+                        datetime.fromisoformat(str(value)).astimezone(UTC)
+                        for value in (stuck_row[2], stuck_row[3])
+                        if value
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    activity = None
+                if activity is not None and activity > now:
+                    continue
+                if activity is None or (now - activity) > timedelta(hours=26):
+                    abandoned = {
+                        "delivery_id": stuck_id,
+                        "state": stuck_state,
+                        "started_at": str(stuck_row[2] or ""),
+                        "last_activity_at": activity.isoformat() if activity else "",
+                    }
+                    break
+                try:
+                    spent = work_store.retry_budget_exhausted(
+                        stuck_id,
+                        max_attempts=int(getattr(getattr(config, "retry_policy", None), "max_attempts", 4)),
+                        max_elapsed_seconds=int(getattr(getattr(config, "retry_policy", None), "max_elapsed_seconds", 604_800)),
+                        now=now,
+                    )
+                except (StateError, sqlite3.Error, TypeError, ValueError):
+                    spent = True
+                if spent:
+                    abandoned = {
+                        "delivery_id": stuck_id,
+                        "state": stuck_state,
+                        "started_at": str(stuck_row[2] or ""),
+                        "last_activity_at": activity.isoformat() if activity is not None else "",
+                    }
+                    break
+    except (StateError, sqlite3.Error, OSError):
+        abandoned = {"delivery_id": 0, "state": "unknown", "started_at": "", "last_activity_at": ""}
+    if abandoned is not None:
+        report["healthy"] = False
+        report["reasons"].append("abandoned_delivery")
+        report["abandoned_delivery"] = abandoned
     last_success = status.get("last_success_at")
     if last_success:
         try:

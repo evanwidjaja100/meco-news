@@ -214,6 +214,7 @@ _HEALTH_RULES: dict[str, tuple[str, str, str, int]] = {
     "unresolved_delivery_failure": ("delivery", "critical", "delivery requires operator attention", 1),
     "all_sources_failed": ("sources", "critical", "all configured sources failed", 1),
     "all_sources_failed_retry_exhausted": ("sources", "critical", "source retry budget is exhausted", 2),
+    "abandoned_delivery": ("delivery", "critical", "active delivery work is abandoned", 1),
     "chunk_retry_exhausted": ("delivery", "critical", "chunk retry budget is exhausted", 2),
     "overdue_delivery": ("schedule", "critical", "scheduled delivery is overdue", 1),
     "stale_delivery_heartbeat": ("lease", "critical", "delivery heartbeat is stale", 1),

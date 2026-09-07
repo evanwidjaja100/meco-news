@@ -1,7 +1,9 @@
 {
   "abandoned_first_delivery_health": {
-    "healthy": true,
-    "reasons": [],
+    "healthy": false,
+    "reasons": [
+      "abandoned_delivery"
+    ],
     "state": "collecting"
   },
   "concurrent_backup_lock_owners": {
