@@ -16,6 +16,8 @@ python scripts/release-provenance.py --root . --output docs/evidence/production-
 python scripts/release-provenance.py --output docs/evidence/production-readiness/local-YYYY-MM-DD/release/provenance.json --verify
 ```
 
+Signature-gated promotion (`--require-signature`) fails closed by design: this repository defines no signing keys or attestation format, so a `signature.state` of `signed` in the JSON is never accepted as authentication. Promotion requiring a signature needs externally verified attestation (for example Sigstore or cosign) recorded out of band.
+
 For a dry-run, provide a validated version-1 frozen-input file rather than
 calling live collectors:
 

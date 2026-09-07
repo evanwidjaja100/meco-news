@@ -97,18 +97,51 @@ def create_provenance(root: str | Path, output: str | Path, artifacts: list[str 
     return target
 
 
+def _context_failures(raw: dict[str, Any]) -> list[str]:
+    """Check that provided build-context evidence still matches its record."""
+
+    context = raw.get("build_context", {})
+    if not isinstance(context, dict) or context.get("state") != "provided":
+        return []
+    candidate = Path(str(context.get("path", "")))
+    if not candidate.is_file():
+        return ["context:missing"]
+    expected = context.get("sha256", "")
+    if not expected or _hash(candidate) != expected:
+        return ["context:mismatch"]
+    return []
+
+
 def verify_provenance(path: str | Path, *, require_signature: bool = False) -> dict[str, Any]:
     target = Path(path).resolve()
     raw = json.loads(target.read_text(encoding="utf-8"))
     if not isinstance(raw, dict) or raw.get("schema_version") != 1:
         raise ValueError("unsupported provenance document")
+    records = raw.get("artifacts", [])
+    if not isinstance(records, list):
+        raise ValueError("provenance artifacts must be a list")
     failures: list[str] = []
-    for record in raw.get("artifacts", []):
+    if require_signature and not records:
+        failures.append("artifacts:empty")
+    for record in records:
+        if not isinstance(record, dict):
+            failures.append("artifacts:malformed")
+            continue
         artifact = Path(str(record.get("path", "")))
         if not artifact.is_file() or _hash(artifact) != record.get("sha256"):
             failures.append(str(artifact))
-    if require_signature and raw.get("signature", {}).get("state") != "signed":
-        failures.append("signature:not_signed")
+    if require_signature:
+        failures.extend(_context_failures(raw))
+        signature = raw.get("signature", {})
+        state = signature.get("state") if isinstance(signature, dict) else None
+        if state != "signed":
+            failures.append("signature:not_signed")
+        else:
+            # This tool defines no attestation format and holds no trust
+            # root, so a self-asserted "signed" state is not authentication.
+            # Signature-gated promotion stays failed until an external
+            # verifier supplies verified results out of band.
+            failures.append("signature:unverifiable")
     return {"passed": not failures, "failures": failures, "signature": raw.get("signature", {})}
 
 
