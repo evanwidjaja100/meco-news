@@ -50,7 +50,7 @@ from meco_news.preflight import (
 )
 from meco_news.storage import StateStore
 
-VALID_SECRETS = {"TELEGRAM_BOT_TOKEN": "123456:real-token-value-for-test", "TELEGRAM_CHAT_ID": "12345"}
+VALID_SECRETS = {"TELEGRAM_BOT_TOKEN": "synthetic-real-token-value-for-test", "TELEGRAM_CHAT_ID": "12345"}
 
 
 def _fresh_db(path: Path) -> Path:

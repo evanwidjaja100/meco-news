@@ -23,7 +23,7 @@ class TestExtra(unittest.TestCase):
             with (
                 patch.dict(
                     "os.environ",
-                    {"STATE_DB": str(p), "TELEGRAM_BOT_TOKEN": "123456:real-token-12345678901234567890", "TELEGRAM_CHAT_ID": "1"},
+                    {"STATE_DB": str(p), "TELEGRAM_BOT_TOKEN": "synthetic-real-token-12345678901234567890", "TELEGRAM_CHAT_ID": "1"},
                 ),
                 patch("meco_news.app._is_due", return_value=False),
                 patch("meco_news.app._has_recovery_work", return_value=False),

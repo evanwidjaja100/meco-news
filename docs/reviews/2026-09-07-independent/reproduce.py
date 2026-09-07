@@ -30,7 +30,7 @@ from meco_news.preflight import healthcheck
 from meco_news.storage import StateStore
 
 CONFIG = load_config(ROOT / "config/watchlist.json")
-ENV = {"TELEGRAM_BOT_TOKEN": "123456:synthetic-review-token", "TELEGRAM_CHAT_ID": "12345"}
+ENV = {"TELEGRAM_BOT_TOKEN": "synthetic-review-token", "TELEGRAM_CHAT_ID": "12345"}
 
 
 def prepare(path, *, snapshot="", policy=None, empty=False):

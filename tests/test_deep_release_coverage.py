@@ -195,7 +195,7 @@ class ConfigurationBoundaryTests(unittest.TestCase):
         config = load_config(ROOT / "config" / "watchlist.json")
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             os.environ,
-            {"TELEGRAM_BOT_TOKEN": "123456:usable", "TELEGRAM_CHAT_ID": "1"},
+            {"TELEGRAM_BOT_TOKEN": "synthetic-usable", "TELEGRAM_CHAT_ID": "1"},
             clear=False,
         ), patch.object(
             preflight_module.inspection,
@@ -391,7 +391,7 @@ class TelegramBoundaryTests(unittest.TestCase):
             return self.body
 
     def _client(self, chat_id: str = "1") -> TelegramClient:
-        return TelegramClient("123456:token", chat_id, timeout=1)
+        return TelegramClient("synthetic-token", chat_id, timeout=1)
 
     def test_html_parser_and_message_validation_matrix(self) -> None:
         for markup in ("<u>x</u>", "<b id='x'>x</b>", "<a>x</a>", "<a href='javascript:x'>x</a>", "<a href='https://x' bad='1'>x</a>", "<br/>", "<b>x</i>", "<!-- x -->", "<!DOCTYPE html>", "<?xml x?>", "<![x]>"):

@@ -133,7 +133,7 @@ def _write_frozen(path: Path, **changes: object) -> dict[str, object]:
 def _live_env(path: Path) -> dict[str, str]:
     return {
         "STATE_DB": str(path),
-        "TELEGRAM_BOT_TOKEN": "123456:valid-token-for-release-tests",
+        "TELEGRAM_BOT_TOKEN": "synthetic-valid-token-for-release-tests",
         "TELEGRAM_CHAT_ID": "123456789",
     }
 
@@ -330,7 +330,7 @@ class LiveRunBoundaryTests(unittest.TestCase):
     def test_live_guards_success_and_dry_run_requirement(self) -> None:
         with patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "replace_with_token", "TELEGRAM_CHAT_ID": "1"}, clear=False):
             self.assertEqual(app.run_once(self.config).outcome, "preflight_failed")
-        with patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "123456:valid-token", "TELEGRAM_CHAT_ID": "123"}, clear=False):
+        with patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "synthetic-valid-token", "TELEGRAM_CHAT_ID": "123"}, clear=False):
             self.assertEqual(app.run_once(self.config, force=True).outcome, "invalid_options")
             with self.assertRaises(ConfigurationError):
                 app.run_once(self.config, dry_run=True)

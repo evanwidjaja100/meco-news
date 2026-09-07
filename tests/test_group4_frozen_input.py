@@ -22,7 +22,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = str(ROOT / "config" / "watchlist.json")
 VALID_FROZEN = str(ROOT / "tests" / "fixtures" / "frozen-empty-v1.json")
-ENV = {"TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token", "TELEGRAM_CHAT_ID": "12345"}
+ENV = {"TELEGRAM_BOT_TOKEN": "synthetic-test-token", "TELEGRAM_CHAT_ID": "12345"}
 
 
 def _run_dry_run(frozen: Path, log: Path, *extra: str) -> subprocess.CompletedProcess[str]:

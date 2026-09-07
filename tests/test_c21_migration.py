@@ -439,7 +439,7 @@ class TestMigrateCommandFailClosed(unittest.TestCase):
         err = io.StringIO()
         with patch.dict(
             os.environ,
-            {"STATE_DB": str(state_path), "TELEGRAM_BOT_TOKEN": "123456:real-token-value-for-test", "TELEGRAM_CHAT_ID": "12345"},
+            {"STATE_DB": str(state_path), "TELEGRAM_BOT_TOKEN": "synthetic-real-token-value-for-test", "TELEGRAM_CHAT_ID": "12345"},
             clear=False,
         ), contextlib.redirect_stderr(err):
             try:
@@ -543,7 +543,7 @@ class TestDeliveryRefusesMigration(unittest.TestCase):
             err = io.StringIO()
             with patch.dict(
                 os.environ,
-                {"STATE_DB": str(path), "TELEGRAM_BOT_TOKEN": "123456:real-token-value-for-test", "TELEGRAM_CHAT_ID": "12345"},
+                {"STATE_DB": str(path), "TELEGRAM_BOT_TOKEN": "synthetic-real-token-value-for-test", "TELEGRAM_CHAT_ID": "12345"},
                 clear=False,
             ), contextlib.redirect_stderr(err):
                 code = main([])

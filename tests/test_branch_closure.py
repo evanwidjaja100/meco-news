@@ -67,7 +67,7 @@ def _collection(*items: NewsItem, failed: bool = False, with_issue: bool = False
 def _live_env(path: Path) -> dict[str, str]:
     return {
         "STATE_DB": str(path),
-        "TELEGRAM_BOT_TOKEN": "123456:branch-closure-token",
+        "TELEGRAM_BOT_TOKEN": "synthetic-branch-closure-token",
         "TELEGRAM_CHAT_ID": "42",
     }
 

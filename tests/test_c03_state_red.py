@@ -39,7 +39,7 @@ class TestF003PreflightFalseGreen(unittest.TestCase):
             con.close()
             # Isolate N-1 from secret failures — set real token so only schema matters
             with patch.dict(
-                os.environ, {"TELEGRAM_BOT_TOKEN": "123456:real-token-value-for-test", "TELEGRAM_CHAT_ID": "12345"}, clear=False
+                os.environ, {"TELEGRAM_BOT_TOKEN": "synthetic-real-token-value-for-test", "TELEGRAM_CHAT_ID": "12345"}, clear=False
             ):
                 code, report = run_preflight(config, state_path=path)
             # Current bug: preflight.py:99 only sets ready=False for >2, not for <2, so N-1 incorrectly returns 0 with ready=True

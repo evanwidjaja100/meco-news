@@ -43,7 +43,7 @@ def main():
     observations = {}
     with tempfile.TemporaryDirectory(prefix='meco-review-') as directory:
         base = Path(directory)
-        env = {'STATE_DB': str(base / 'run.db'), 'TELEGRAM_BOT_TOKEN': '123456:review-fake-token',
+        env = {'STATE_DB': str(base / 'run.db'), 'TELEGRAM_BOT_TOKEN': 'synthetic-review-fake-token',
                'TELEGRAM_CHAT_ID': '123', 'LOG_FILE': ''}
         with patch.dict(os.environ, env, clear=True):
             # Keep a live WAL writer open, after checkpointing only the empty schema.
@@ -186,7 +186,7 @@ def main():
             built = build_digest([item], 'MECO', 'UTC')
             named = re.findall(r'&([A-Za-z]+);', ''.join(built.messages))
             observations['telegram_named_entities'] = {'unsupported': sorted(set(named) - {'lt', 'gt', 'amp', 'quot'})}
-            fake = TelegramClient('123456:review-fake-token', '123')
+            fake = TelegramClient('synthetic-review-fake-token', '123')
             response_results = []
             for body in (b'{}', b'{"ok":true,"result":{"message_id":null}}', b'{"ok":"false","result":{"message_id":12}}'):
                 response = io.BytesIO(body)

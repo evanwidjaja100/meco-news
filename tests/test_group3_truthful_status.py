@@ -27,7 +27,7 @@ from meco_news.storage import StateStore
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = str(ROOT / "config" / "watchlist.json")
-ENV = {"TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token", "TELEGRAM_CHAT_ID": "12345"}
+ENV = {"TELEGRAM_BOT_TOKEN": "synthetic-test-token", "TELEGRAM_CHAT_ID": "12345"}
 
 
 def _fresh_db(path: Path) -> Path:

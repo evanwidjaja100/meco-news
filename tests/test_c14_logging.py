@@ -20,7 +20,7 @@ import unittest
 from pathlib import Path
 
 
-RAW_TOKEN = "123456789:AAH-canary-abcdefghijklmnopqrstuvwxyz012"
+RAW_TOKEN = "123456:canary-redaction-token-0"
 BEARER = "Bearer bearer-canary-xyz123"
 QUOTED_JSON = '{"token": "quoted-canary-xyz"}'
 EMBEDDED_URL = "see https://user:userinfo-canary@example.com/path?token=query-canary&x=1 now"
@@ -309,7 +309,7 @@ class TestC14Hardening(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             state = str(Path(directory) / "state.db")
-            env = {"STATE_DB": state, "TELEGRAM_BOT_TOKEN": "123456:real-token-value", "TELEGRAM_CHAT_ID": "99"}
+            env = {"STATE_DB": state, "TELEGRAM_BOT_TOKEN": "synthetic-real-token-value", "TELEGRAM_CHAT_ID": "99"}
             ok = SourceResult("s", "S", "succeeded", items=[], accepted_count=0)
             collection = CollectionResult([], [ok], datetime.now(UTC), 1)
 
@@ -364,7 +364,7 @@ class TestC14Hardening(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             state = str(Path(directory) / "state.db")
-            env = {"STATE_DB": state, "TELEGRAM_BOT_TOKEN": "123456:real-token-value", "TELEGRAM_CHAT_ID": "99"}
+            env = {"STATE_DB": state, "TELEGRAM_BOT_TOKEN": "synthetic-real-token-value", "TELEGRAM_CHAT_ID": "99"}
             evil = "collector blew up token=flow-canary-9 " + RAW_TOKEN
             stdout, stderr = io.StringIO(), io.StringIO()
             old_out, old_err = sys.stdout, sys.stderr

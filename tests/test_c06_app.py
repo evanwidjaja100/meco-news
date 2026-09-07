@@ -21,7 +21,7 @@ class TestAppCollectorsStorage(unittest.TestCase):
 
             p = Path(d) / "state.db"
             with patch.dict(
-                "os.environ", {"STATE_DB": str(p), "TELEGRAM_BOT_TOKEN": "123456:real-token-12345678901234567890", "TELEGRAM_CHAT_ID": "1"}
+                "os.environ", {"STATE_DB": str(p), "TELEGRAM_BOT_TOKEN": "synthetic-real-token-12345678901234567890", "TELEGRAM_CHAT_ID": "1"}
             ):
                 # Create a completed delivery first
                 with StateStore(p) as s:

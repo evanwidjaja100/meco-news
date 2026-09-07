@@ -25,7 +25,7 @@ from meco_news.storage import StateError, StateStore
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = load_config(ROOT / "config/watchlist.json")
-ENV = {"TELEGRAM_BOT_TOKEN": "123456:synthetic-review-token", "TELEGRAM_CHAT_ID": "12345"}
+ENV = {"TELEGRAM_BOT_TOKEN": "synthetic-review-token", "TELEGRAM_CHAT_ID": "12345"}
 
 
 def _prepare(path, *, snapshot="", policy=None):

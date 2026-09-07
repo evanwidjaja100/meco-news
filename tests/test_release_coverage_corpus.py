@@ -236,7 +236,7 @@ class AppHelperCorpusTests(unittest.TestCase):
             def discover_chats(self):
                 return [{"id": 1, "type": "private"}]
 
-        env = {"TELEGRAM_BOT_TOKEN": "123456:usable", "TELEGRAM_CHAT_ID": "1"}
+        env = {"TELEGRAM_BOT_TOKEN": "synthetic-usable", "TELEGRAM_CHAT_ID": "1"}
         with patch.dict("os.environ", env, clear=False), patch("meco_news.app.TelegramClient", FakeTelegram):
             self.assertEqual(main(["--test-telegram", "--json"]), 0)
             self.assertEqual(main(["--discover-chat", "--json"]), 0)
@@ -250,7 +250,7 @@ class AppRunOnceCorpusTests(unittest.TestCase):
     def _run(self, collection: CollectionResult, telegram, *, extra_env: dict[str, str] | None = None, config=None, stop_event=None, force=False, operator="", reason=""):
         config = config or _config()
         with tempfile.TemporaryDirectory() as directory:
-            values = {"STATE_DB": str(Path(directory) / "state.db"), "TELEGRAM_BOT_TOKEN": "123456:usable", "TELEGRAM_CHAT_ID": "1"}
+            values = {"STATE_DB": str(Path(directory) / "state.db"), "TELEGRAM_BOT_TOKEN": "synthetic-usable", "TELEGRAM_CHAT_ID": "1"}
             values.update(extra_env or {})
             with patch.dict("os.environ", values, clear=False), patch("meco_news.app.collect_all", return_value=collection), patch("meco_news.app.TelegramClient", telegram):
                 result = run_once(config, force=force, stop_event=stop_event, force_operator=operator, force_reason=reason)
@@ -316,7 +316,7 @@ class AppRunOnceCorpusTests(unittest.TestCase):
                 store.acquire_lease("delivery", "fixture", 180)
                 attention = store.create_delivery("2026-09-06", state="needs_attention", owner_id="fixture")
                 store.release_lease("delivery", "fixture")
-            with patch.dict("os.environ", {"STATE_DB": str(path), "TELEGRAM_BOT_TOKEN": "123456:usable", "TELEGRAM_CHAT_ID": "1"}, clear=False):
+            with patch.dict("os.environ", {"STATE_DB": str(path), "TELEGRAM_BOT_TOKEN": "synthetic-usable", "TELEGRAM_CHAT_ID": "1"}, clear=False):
                 self.assertEqual(run_once(config).outcome, "needs_attention")
             self.assertEqual(attention.generation, 0)
         empty = CollectionResult([], [SourceResult("s", "S", "succeeded")], datetime.now(UTC), 1)
@@ -441,7 +441,7 @@ class TelegramCorpusTests(unittest.TestCase):
             return self.body
 
     def _client(self) -> TelegramClient:
-        return TelegramClient("123456:usable", "1")
+        return TelegramClient("synthetic-usable", "1")
 
     def test_telegram_envelopes_and_transport_errors(self) -> None:
         from urllib.error import HTTPError, URLError
@@ -474,7 +474,7 @@ class TelegramCorpusTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             TelegramClient("replace_with_token", "1")
         with self.assertRaises(ValueError):
-            TelegramClient("123456:usable", "").send_html("ok")
+            TelegramClient("synthetic-usable", "").send_html("ok")
 
     def test_telegram_result_validation_and_chat_discovery(self) -> None:
         client = self._client()

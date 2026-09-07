@@ -254,7 +254,7 @@ class CLIAndMessageTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as directory,
             patch.dict(
                 "os.environ",
-                {"STATE_DB": str(Path(directory) / "state.db"), "TELEGRAM_BOT_TOKEN": "123456:real-token-value", "TELEGRAM_CHAT_ID": "1"},
+                {"STATE_DB": str(Path(directory) / "state.db"), "TELEGRAM_BOT_TOKEN": "synthetic-real-token-value", "TELEGRAM_CHAT_ID": "1"},
                 clear=False,
             ),
             patch("meco_news.app.collect_all", return_value=collection),

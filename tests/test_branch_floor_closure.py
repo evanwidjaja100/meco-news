@@ -43,7 +43,7 @@ def _today() -> str:
 def _live_env(path: Path) -> dict[str, str]:
     return {
         "STATE_DB": str(path),
-        "TELEGRAM_BOT_TOKEN": "123456:valid-token-for-closure-tests",
+        "TELEGRAM_BOT_TOKEN": "synthetic-valid-token-for-closure-tests",
         "TELEGRAM_CHAT_ID": "123456789",
     }
 

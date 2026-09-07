@@ -120,9 +120,9 @@ class NetworkCorpus(unittest.TestCase):
         t = threading.Thread(target=s.serve_forever, daemon=True)
         t.start()
         try:
-            client = TelegramClient("123456:fake-token-12345678901234567890", "123", timeout=5)
+            client = TelegramClient("synthetic-fake-token-12345678901234567890", "123", timeout=5)
             # Patch base_url to point to fake server
-            client.base_url = f"http://127.0.0.1:{port}/bot123456:fake-token-12345678901234567890"
+            client.base_url = f"http://127.0.0.1:{port}/botsynthetic-fake-token-12345678901234567890"
             # getMe
             me = client.get_me()
             self.assertEqual(me["username"], "testbot")

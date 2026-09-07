@@ -21,7 +21,7 @@ class TestAppCover(unittest.TestCase):
             with (
                 patch.dict(
                     "os.environ",
-                    {"STATE_DB": str(p), "TELEGRAM_BOT_TOKEN": "123456:real-token-12345678901234567890", "TELEGRAM_CHAT_ID": "1"},
+                    {"STATE_DB": str(p), "TELEGRAM_BOT_TOKEN": "synthetic-real-token-12345678901234567890", "TELEGRAM_CHAT_ID": "1"},
                 ),
                 patch("meco_news.app.collect_all", return_value=failed),
             ):
