@@ -101,6 +101,9 @@ class BackupJobLock:
                 raise BackupBusy("backup lock path is not a regular file") from exc
             if not isinstance(exc, FileExistsError):
                 raise
+            expected: bytes = b""
+            with contextlib.suppress(OSError):
+                expected = self.path.read_bytes()
             existing: dict[str, Any] = {}
             with contextlib.suppress(OSError, ValueError, TypeError, json.JSONDecodeError):
                 existing = json.loads(self.path.read_text(encoding="utf-8"))
@@ -113,6 +116,16 @@ class BackupJobLock:
             # directory supplied as a lock path.
             if self.path.is_symlink() or not self.path.is_file():
                 raise BackupBusy("backup lock is not a recoverable regular file") from exc
+            # Compare-and-swap on the stale marker: only remove the exact
+            # bytes inspected above. A contender that published or recovered
+            # after our read owns the lock now; unlinking its marker would
+            # hand both contenders a held lock.
+            try:
+                current = self.path.read_bytes()
+            except OSError:
+                current = b""
+            if current != expected:
+                raise BackupBusy("backup lock changed while recovering a stale marker") from exc
             try:
                 self.path.unlink()
                 fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)

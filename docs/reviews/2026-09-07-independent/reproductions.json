@@ -7,9 +7,7 @@
     "state": "collecting"
   },
   "concurrent_backup_lock_owners": {
-    "first_held": true,
-    "marker_owner": "first",
-    "second_held": true
+    "probe_error": "BackupBusy: backup lock changed while recovering a stale marker"
   },
   "corrupt_database_status_cli": {
     "actual_file_exists": true,
