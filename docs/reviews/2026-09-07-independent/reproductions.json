@@ -49,10 +49,10 @@
     "simulated_collection_seconds": 70
   },
   "malformed_frozen_input_cli": {
-    "exit_code": 1,
+    "exit_code": 2,
     "log_created": false,
-    "stdout": "",
-    "traceback": true
+    "stdout": "{\"code\": 2, \"error_class\": \"ConfigurationError\", \"outcome\": \"invalid_input\"}\n",
+    "traceback": false
   },
   "restore_process_death_loses_authority": {
     "child_exit": 73,

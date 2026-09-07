@@ -1744,6 +1744,16 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(result_payload, ensure_ascii=False, sort_keys=True))
             return result.code
         return result
+    except ConfigurationError as exc:
+        # Invalid frozen input or options fail with exit code 2 before
+        # state or network initialization, matching parser.error and the
+        # documented dry-run contract. Never a traceback, never exit 1.
+        emit_event("run_terminal", level=logging.ERROR, outcome="invalid_input", error_class="ConfigurationError")
+        if args.json_output:
+            print(json.dumps({"code": 2, "outcome": "invalid_input", "error_class": "ConfigurationError"}, sort_keys=True))
+        else:
+            print(str(exc), file=sys.stderr)
+        return 2
     except (OSError, StateError, sqlite3.Error) as exc:
         emit_event("run_terminal", level=logging.ERROR, outcome="failed_terminal", error_class=type(exc).__name__)
         if args.json_output:
