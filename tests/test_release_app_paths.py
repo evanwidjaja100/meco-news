@@ -31,6 +31,13 @@ def _config():
     return load_config(ROOT / "config" / "watchlist.json")
 
 
+def _today() -> str:
+    # Seeds and lookups must anchor to the same delivery date the app
+    # computes for today; a hardcoded date rots into yesterday and turns
+    # these boundary tests into stale-delivery scenarios.
+    return app._delivery_date(_config())
+
+
 def _item(number: int = 0) -> NewsItem:
     return NewsItem(
         title=f"LPG terminal expansion project {number}",
@@ -135,10 +142,11 @@ def _seed_delivery(
     path: Path,
     *,
     state: str = "prepared",
-    delivery_date: str = "2026-09-07",
+    delivery_date: str | None = None,
     target_snapshot: str = "",
     final_outcome: str | None = None,
 ) -> int:
+    delivery_date = delivery_date or _today()
     with StateStore(path) as store:
         store.acquire_lease("delivery", "fixture-owner", 180)
         delivery = store.create_delivery(
@@ -345,7 +353,7 @@ class LiveRunBoundaryTests(unittest.TestCase):
                     result = app.run_once(self.config)
                 self.assertEqual(result.outcome, expected, type(error).__name__)
                 with StateStore(path, readonly=True) as store:
-                    current = store.active_delivery(None) or store.latest_delivery("2026-09-07")
+                    current = store.active_delivery(None) or store.latest_delivery(_today())
                     self.assertIsNotNone(current)
                     self.assertEqual(current.state, expected, type(error).__name__)
 
@@ -416,7 +424,7 @@ class LiveRunBoundaryTests(unittest.TestCase):
                 result = app.run_once(self.config)
             self.assertEqual(result.outcome, "failed_terminal")
             with StateStore(path, readonly=True) as store:
-                self.assertEqual(store.latest_delivery("2026-09-07").state, "failed_terminal")  # type: ignore[union-attr]
+                self.assertEqual(store.latest_delivery(_today()).state, "failed_terminal")  # type: ignore[union-attr]
 
     def test_force_replay_records_audit_and_sends_new_generation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -430,7 +438,7 @@ class LiveRunBoundaryTests(unittest.TestCase):
             with StateStore(path, readonly=True) as store:
                 audits = store.connection.execute("SELECT COUNT(*) FROM force_audits").fetchone()[0]
                 self.assertEqual(audits, 1)
-                self.assertEqual(store.latest_generation("2026-09-07"), 1)
+                self.assertEqual(store.latest_generation(_today()), 1)
 
 
 class DaemonAndCliBoundaryTests(unittest.TestCase):
