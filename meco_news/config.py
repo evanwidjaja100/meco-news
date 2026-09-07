@@ -484,8 +484,12 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         raise ConfigurationError("request_timeout_seconds must not exceed limits.source_deadline_seconds")
     if limits.cycle_deadline_seconds < limits.source_deadline_seconds:
         raise ConfigurationError("limits.cycle_deadline_seconds must cover one source deadline")
-    if lease_ttl < limits.source_deadline_seconds + 30:
-        raise ConfigurationError("lease_ttl_seconds must exceed the source deadline by at least 30 seconds")
+    # The delivery lease is acquired before collection and is not
+    # heartbeated until the delivery phase, so it must cover the entire
+    # blocking collection window. A shorter lease expires mid-cycle and
+    # strands the delivery in collecting with failed_terminal.
+    if lease_ttl < limits.cycle_deadline_seconds + 30:
+        raise ConfigurationError("lease_ttl_seconds must exceed limits.cycle_deadline_seconds by at least 30 seconds")
     topics = _parse_topics(raw_input.get("topics"))
     feeds, raw_feeds = _parse_feeds(raw_input.get("rss_feeds"), limits)
 

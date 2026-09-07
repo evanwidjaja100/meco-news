@@ -39,12 +39,7 @@
     }
   },
   "lease_budget_validation": {
-    "accepted_lease_ttl": 65,
-    "collection_cycle_budget": 120,
-    "outcome": "failed_terminal",
-    "persisted_state": "collecting",
-    "send_calls": 0,
-    "simulated_collection_seconds": 70
+    "probe_error": "ConfigurationError: lease_ttl_seconds must exceed limits.cycle_deadline_seconds by at least 30 seconds"
   },
   "malformed_frozen_input_cli": {
     "exit_code": 2,
