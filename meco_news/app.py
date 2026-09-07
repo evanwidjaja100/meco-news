@@ -130,6 +130,50 @@ def _retry_delay(config: Mapping[str, Any], attempt: int, *, retry_after: int = 
     return timedelta(seconds=max(retry_after, min(maximum, base * (2 ** max(0, attempt - 1)) + deterministic_jitter)))
 
 
+def _frozen_retry_setting(store: object, delivery_id: int, config: object) -> tuple[bool, int, int]:
+    try:
+        frozen = store.delivery_retry_policy(delivery_id, {})  # type: ignore[attr-defined]
+    except Exception:
+        frozen = {}
+    if not isinstance(frozen, dict) or not frozen:
+        try:
+            cfg_retry = config.retry_policy  # type: ignore[attr-defined]
+            return bool(cfg_retry.enabled), int(cfg_retry.max_attempts), int(cfg_retry.max_elapsed_seconds)
+        except Exception:
+            return True, 4, 604800
+    try:
+        enabled = frozen.get("enabled", True)
+        enabled = bool(enabled) if not isinstance(enabled, bool) else enabled
+        _ma = frozen.get("max_attempts", 4)
+        _me = frozen.get("max_elapsed_seconds", 604800)
+        max_attempts = int(str(_ma)) if isinstance(_ma, (str, int)) else 4
+        max_elapsed = int(str(_me)) if isinstance(_me, (str, int)) else 604800
+    except (TypeError, ValueError):
+        return True, 4, 604800
+    return enabled, max(1, max_attempts), max(1, max_elapsed)
+
+
+def _frozen_retry_delay(frozen: dict[str, object], attempt: int, *, retry_after: int = 0) -> timedelta:
+    try:
+        _b = frozen.get("base_delay_seconds", 60)
+        base = int(str(_b)) if isinstance(_b, (str, int)) else 60
+    except (TypeError, ValueError):
+        base = 60
+    try:
+        _m = frozen.get("max_delay_seconds", 3600)
+        maximum = int(str(_m)) if isinstance(_m, (str, int)) else 3600
+    except (TypeError, ValueError):
+        maximum = 3600
+    try:
+        _j = frozen.get("jitter_seconds", 15)
+        jitter = int(str(_j)) if isinstance(_j, (str, int)) else 15
+    except (TypeError, ValueError):
+        jitter = 15
+    retry_after = max(0, min(int(retry_after), maximum, 3600))
+    deterministic_jitter = (attempt * 7) % (jitter + 1) if jitter else 0
+    return timedelta(seconds=max(retry_after, min(maximum, base * (2 ** max(0, attempt - 1)) + deterministic_jitter)))
+
+
 # C1.4: dry-run previews are human diagnostics on stderr; stdout stays JSON-parseable.
 def _print_dry_run(
     items: list[Any],
@@ -599,6 +643,27 @@ def run_once(
                     return RunOutcome(1, "retry_wait")
                 # A content retry resumes its frozen chunk. Only a collection
                 # retry (or a delivery with no outbox yet) reopens collection.
+                try:
+                    _f_enabled, _f_max_a, _f_max_e = _frozen_retry_setting(store, active.delivery_id, config)
+                except Exception:
+                    _f_enabled, _f_max_a, _f_max_e = True, 4, 604800
+                if store.retry_budget_exhausted(
+                    active.delivery_id,
+                    max_attempts=_f_max_a,
+                    max_elapsed_seconds=_f_max_e,
+                    now=datetime.now(UTC),
+                ):
+                    with suppress(Exception):
+                        store.fail_delivery(active.delivery_id, "retry_budget_exhausted", owner_id=owner_id)
+                    emit_event(
+                        "run_terminal",
+                        run_id=run_id,
+                        delivery_date=delivery_date,
+                        outcome="failed_terminal",
+                        reason_code="retry_budget_exhausted",
+                        delivery_id=active.delivery_id,
+                    )
+                    return RunOutcome(1, "failed_terminal")
                 if active.kind == "collection_retry" or not store.due_chunks(active.delivery_id):
                     active = store.reopen_for_collection(active.delivery_id, owner_id=owner_id)
             if active is None:
@@ -677,7 +742,18 @@ def run_once(
                     return RunOutcome(0, "stopped")
                 store.record_source_results(active.delivery_id, collection.source_results, owner_id=owner_id)
                 if collection.all_sources_failed:
-                    retry_enabled = config.retry_policy.enabled and not os.getenv("MECO_DISABLE_RETRIES")
+                    try:
+                        _c_frozen = store.delivery_retry_policy(active.delivery_id, _retry_policy_snapshot(config))
+                    except Exception:
+                        _c_frozen = _retry_policy_snapshot(config)
+                    if isinstance(_c_frozen, dict) and _c_frozen:
+                        retry_enabled = bool(_c_frozen.get("enabled", config.retry_policy.enabled)) and not os.getenv("MECO_DISABLE_RETRIES")
+                        _c_max_a = int(_c_frozen.get("max_attempts", config.retry_policy.max_attempts))
+                        _c_max_e = int(_c_frozen.get("max_elapsed_seconds", config.retry_policy.max_elapsed_seconds))
+                    else:
+                        retry_enabled = config.retry_policy.enabled and not os.getenv("MECO_DISABLE_RETRIES")
+                        _c_max_a = config.retry_policy.max_attempts
+                        _c_max_e = config.retry_policy.max_elapsed_seconds
                     retry_number = store.record_collection_attempt(
                         active.delivery_id,
                         run_id=run_id,
@@ -687,8 +763,8 @@ def run_once(
                     )
                     elapsed_exhausted = store.retry_budget_exhausted(
                         active.delivery_id,
-                        max_attempts=config.retry_policy.max_attempts,
-                        max_elapsed_seconds=config.retry_policy.max_elapsed_seconds,
+                        max_attempts=_c_max_a,
+                        max_elapsed_seconds=_c_max_e,
                         now=datetime.now(UTC),
                     )
                     if not retry_enabled or elapsed_exhausted:
@@ -709,7 +785,15 @@ def run_once(
                         )
                         return RunOutcome(1, "failed_terminal")
                     else:
-                        next_attempt = datetime.now(UTC) + _retry_delay(config, retry_number)
+                        try:
+                            _c_delay_frozen = store.delivery_retry_policy(active.delivery_id, _retry_policy_snapshot(config))
+                        except Exception:
+                            _c_delay_frozen = {}
+                        next_attempt = datetime.now(UTC) + (
+                            _frozen_retry_delay(_c_delay_frozen, retry_number)
+                            if isinstance(_c_delay_frozen, dict) and _c_delay_frozen
+                            else _retry_delay(config, retry_number)
+                        )
                         store.set_collection_retry(
                             active.delivery_id,
                             next_attempt_at=next_attempt,
@@ -829,6 +913,39 @@ def run_once(
                     emit_event("run_terminal", run_id=run_id, delivery_date=delivery_date, outcome="retry_wait", delivery_id=delivery_id)
                     return RunOutcome(1, "retry_wait")
                 for chunk in chunks:
+                    try:
+                        _s_frozen = store.delivery_retry_policy(delivery_id, _retry_policy_snapshot(config))
+                    except Exception:
+                        _s_frozen = {}
+                    if isinstance(_s_frozen, dict) and _s_frozen:
+                        _s_max_a = int(_s_frozen.get("max_attempts", config.retry_policy.max_attempts))
+                        _s_max_e = int(_s_frozen.get("max_elapsed_seconds", config.retry_policy.max_elapsed_seconds))
+                        _s_enabled = bool(_s_frozen.get("enabled", config.retry_policy.enabled))
+                    else:
+                        _s_max_a = config.retry_policy.max_attempts
+                        _s_max_e = config.retry_policy.max_elapsed_seconds
+                        _s_enabled = config.retry_policy.enabled
+                    if not _s_enabled:
+                        _s_enabled = True
+                    if store.retry_budget_exhausted(
+                        delivery_id,
+                        chunk_id=chunk.chunk_id,
+                        max_attempts=_s_max_a,
+                        max_elapsed_seconds=_s_max_e,
+                        now=datetime.now(UTC),
+                    ):
+                        with suppress(Exception):
+                            store.fail_delivery(delivery_id, "retry_budget_exhausted", owner_id=owner_id)
+                        emit_event(
+                            "run_terminal",
+                            run_id=run_id,
+                            delivery_date=delivery_date,
+                            outcome="failed_terminal",
+                            reason_code="retry_budget_exhausted",
+                            delivery_id=delivery_id,
+                            chunk_id=chunk.chunk_id,
+                        )
+                        return RunOutcome(1, "failed_terminal")
                     _, attempt_number = store.begin_chunk_attempt(chunk.chunk_id, run_id=run_id, owner_id=owner_id)
                     chunk_attempt = AttemptLifecycle(
                         kind="chunk",
@@ -866,23 +983,43 @@ def run_once(
                                 chunk_id=chunk.chunk_id,
                             )
                             return RunOutcome(1, "needs_attention")
+                        try:
+                            _e_frozen = store.delivery_retry_policy(delivery_id, _retry_policy_snapshot(config))
+                        except Exception:
+                            _e_frozen = {}
+                        _e_max_a = int(_e_frozen.get("max_attempts", config.retry_policy.max_attempts)) if isinstance(_e_frozen, dict) and _e_frozen else config.retry_policy.max_attempts
+                        _e_max_e = int(_e_frozen.get("max_elapsed_seconds", config.retry_policy.max_elapsed_seconds)) if isinstance(_e_frozen, dict) and _e_frozen else config.retry_policy.max_elapsed_seconds
                         retry_budget_exhausted = (
                             store.retry_budget_exhausted(
                                 delivery_id,
                                 chunk_id=chunk.chunk_id,
-                                max_attempts=config.retry_policy.max_attempts,
-                                max_elapsed_seconds=config.retry_policy.max_elapsed_seconds,
+                                max_attempts=_e_max_a,
+                                max_elapsed_seconds=_e_max_e,
                             )
                             if exc.outcome == "rejected_retryable"
                             else False
                         )
+                        try:
+                            _r_frozen = store.delivery_retry_policy(delivery_id, _retry_policy_snapshot(config))
+                        except Exception:
+                            _r_frozen = {}
+                        _r_max_a = int(_r_frozen.get("max_attempts", config.retry_policy.max_attempts)) if isinstance(_r_frozen, dict) and _r_frozen else config.retry_policy.max_attempts
+                        _r_enabled = bool(_r_frozen.get("enabled", config.retry_policy.enabled)) if isinstance(_r_frozen, dict) and _r_frozen else config.retry_policy.enabled
                         if (
                             exc.outcome == "rejected_retryable"
-                            and retry_enabled
-                            and attempt_number < config.retry_policy.max_attempts
+                            and (_r_enabled and not os.getenv("MECO_DISABLE_RETRIES"))
+                            and attempt_number < _r_max_a
                             and not retry_budget_exhausted
                         ):
-                            next_attempt = datetime.now(UTC) + _retry_delay(config, attempt_number, retry_after=exc.retry_after)
+                            try:
+                                _d_frozen = store.delivery_retry_policy(delivery_id, _retry_policy_snapshot(config))
+                            except Exception:
+                                _d_frozen = {}
+                            next_attempt = datetime.now(UTC) + (
+                                _frozen_retry_delay(_d_frozen, attempt_number, retry_after=exc.retry_after)
+                                if isinstance(_d_frozen, dict) and _d_frozen
+                                else _retry_delay(config, attempt_number, retry_after=exc.retry_after)
+                            )
                             store.finish_chunk(
                                 chunk.chunk_id,
                                 "rejected_retryable",

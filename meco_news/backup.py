@@ -9,6 +9,7 @@ import contextlib
 import json
 import os
 from pathlib import Path
+import pathlib
 import sqlite3
 import tempfile
 import re
@@ -334,6 +335,169 @@ def _restore_orphan_sidecar_path(target: Path, suffix: str) -> Path:
     raise StateError("could not reserve a quarantine path for an orphaned SQLite sidecar")
 
 
+def _restore_intent_path(target: Path) -> Path:
+    return target.with_name(target.name + ".restore-intent.json")
+
+
+def _write_restore_intent(target: Path, previous: Path, backup: Path) -> None:
+    payload = {
+        "target": target.name,
+        "previous": previous.name,
+        "backup": backup.name,
+        "pid": os.getpid(),
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    intent = _restore_intent_path(target)
+    fd, tmp = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".intent.tmp", dir=target.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, intent)
+        _fsync_directory(target.parent)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            pathlib.Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def _clear_restore_intent(target: Path) -> None:
+    with contextlib.suppress(OSError):
+        _restore_intent_path(target).unlink(missing_ok=True)
+    _fsync_directory(target.parent)
+
+
+def _recover_interrupted_restore(target: Path) -> str:
+    intent = _restore_intent_path(target)
+    if intent.is_file():
+        try:
+            data = json.loads(intent.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+        prev_name = data.get("previous") if isinstance(data, dict) else None
+        previous = target.parent / str(prev_name) if isinstance(prev_name, str) and prev_name else None
+        if not target.exists() and previous is not None and previous.is_file():
+            with contextlib.suppress(OSError):
+                os.replace(previous, target)
+            for suffix in ("-wal", "-shm", "-journal"):
+                orphan = pathlib.Path(f"{previous}{suffix}")
+                dest = pathlib.Path(f"{target}{suffix}")
+                if orphan.exists() and not dest.exists():
+                    with contextlib.suppress(OSError):
+                        os.replace(orphan, dest)
+            _fsync_directory(target.parent)
+            if target.exists():
+                _clear_restore_intent(target)
+                return "rolled_back"
+        if target.exists():
+            _clear_restore_intent(target)
+            return "cleared"
+        return "needs_operator"
+    if not target.exists():
+        legacy = target.with_suffix(target.suffix + ".pre-restore.bak")
+        if legacy.is_file():
+            raise StateError(
+                f"interrupted restore detected; rollback retained at {legacy}; operator reconciliation required"
+            )
+    return "ok"
+
+
+def _backup_unresolved_state(backup: Path) -> list[dict[str, object]]:
+    try:
+        con = sqlite3.connect(f"file:{backup.resolve().as_posix()}?mode=ro", uri=True, timeout=5.0)
+    except sqlite3.Error as exc:
+        raise StateError(f"backup cannot be inspected safely: {exc}") from exc
+    try:
+        rows = con.execute(
+            "SELECT chunk_id,delivery_id,state FROM outbox_chunks WHERE state IN ('in_flight','ambiguous')"
+        ).fetchall()
+        return [{"chunk_id": r[0], "delivery_id": r[1], "state": r[2]} for r in rows]
+    except sqlite3.Error as exc:
+        raise StateError(f"backup recovery state cannot be read safely: {exc}") from exc
+    finally:
+        con.close()
+
+
+def _reconcile_restored_acks(target: Path, restored: Path) -> int:
+    if not target.is_file():
+        return 0
+    src = sqlite3.connect(f"file:{target.resolve().as_posix()}?mode=ro", uri=True, timeout=5.0)
+    src.row_factory = sqlite3.Row
+    dst = sqlite3.connect(restored)
+    try:
+        src_tables = {str(r[0]) for r in src.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        if "outbox_chunks" not in src_tables or "deliveries" not in src_tables:
+            return 0
+        try:
+            dst_tables = {str(r[0]) for r in dst.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        except sqlite3.Error:
+            return 0
+        if "outbox_chunks" not in dst_tables or "deliveries" not in dst_tables:
+            return 0
+        sent = src.execute(
+            "SELECT chunk_id,payload_hash,telegram_message_id,sent_at,attempt_count FROM outbox_chunks WHERE state='sent'"
+        ).fetchall()
+        if not sent:
+            return 0
+        reconciled = 0
+        for row in sent:
+            cid = int(row[0])
+            phash = str(row[1])
+            cur = dst.execute(
+                "SELECT chunk_id,payload_hash,state FROM outbox_chunks WHERE chunk_id=?", (cid,)
+            ).fetchone()
+            if not cur:
+                continue
+            if str(cur[1]) != phash:
+                continue
+            if str(cur[2]) == "sent":
+                continue
+            if str(cur[2]) not in {"pending", "retry_wait", "in_flight", "failed_terminal"}:
+                continue
+            msg_id = str(row[2] or "")
+            sent_at = str(row[3] or datetime.now(UTC).isoformat())
+            attempts = int(row[4] or 0)
+            dst.execute(
+                "UPDATE outbox_chunks SET state='sent',telegram_message_id=?,sent_at=?,attempt_count=MAX(attempt_count,?),"
+                "in_flight_at=NULL,next_attempt_at=NULL,error_class='restored_ack',error_text='reconciled from post-backup send' "
+                "WHERE chunk_id=?",
+                (msg_id, sent_at, attempts, cid),
+            )
+            if dst.execute("SELECT changes()").fetchone()[0] == 1:
+                reconciled += 1
+                with contextlib.suppress(sqlite3.Error):
+                    dst.execute(
+                        "INSERT INTO delivery_attempts(delivery_id,chunk_id,attempt_number,started_at,ended_at,outcome,error_class,run_id) "
+                        "SELECT delivery_id,chunk_id,attempt_count,COALESCE(last_attempt_at,?),?, 'accepted','restored_ack',? "
+                        "FROM outbox_chunks WHERE chunk_id=?",
+                        (sent_at, sent_at, f"restore-reconcile-{uuid.uuid4().hex[:8]}", cid),
+                    )
+        if reconciled:
+            for (did,) in dst.execute("SELECT delivery_id FROM deliveries").fetchall():
+                remaining = dst.execute(
+                    "SELECT COUNT(*) FROM outbox_chunks WHERE delivery_id=? AND state NOT IN ('sent')", (did,)
+                ).fetchone()[0]
+                if remaining == 0:
+                    empty = dst.execute("SELECT COUNT(*) FROM delivery_items WHERE delivery_id=?", (did,)).fetchone()[0] == 0
+                    now = datetime.now(UTC).isoformat()
+                    dst.execute(
+                        "UPDATE deliveries SET state=?,completed_at=COALESCE(completed_at,?),next_attempt_at=NULL WHERE delivery_id=? "
+                        "AND state NOT IN ('completed','completed_empty')",
+                        ("completed_empty" if empty else "completed", now, did),
+                    )
+        dst.commit()
+        return reconciled
+    except sqlite3.Error as exc:
+        with contextlib.suppress(sqlite3.Error):
+            dst.rollback()
+        raise StateError(f"restored acknowledgment reconciliation failed: {exc}") from exc
+    finally:
+        src.close()
+        dst.close()
+
+
 def _merge_post_backup_history(target: Path, restored: Path) -> int:
     """Preserve target sends as a recovery-only history generation."""
 
@@ -409,6 +573,12 @@ def restore_backup(
     if unresolved:
         raise StateError("cannot restore over unresolved target work; reconcile in-flight/ambiguous chunks first")
 
+    _recover_interrupted_restore(target)
+    backup_unresolved = _backup_unresolved_state(backup)
+    if backup_unresolved:
+        raise StateError(
+            "backup contains unresolved in-flight/ambiguous work; reconcile it before restore"
+        )
     target.parent.mkdir(parents=True, exist_ok=True)
     if _path_exists(target) and not target.is_file():
         raise StateError(f"restore target is not a regular database file: {target}")
@@ -436,13 +606,19 @@ def restore_backup(
                 if restored.integrity_check() != "ok" or restored.schema_version != CURRENT_SCHEMA_VERSION:
                     raise StateError("restored database failed compatibility verification")
             _merge_post_backup_history(target, temporary)
+            _reconcile_restored_acks(target, temporary)
             with StateStore(temporary, readonly=True, offline=True) as restored:
                 if restored.integrity_check() != "ok":
                     raise StateError("reconciled restore failed integrity verification")
             _fsync_file(temporary)
             os.chmod(temporary, previous_mode or 0o600)
+            _previous_reserved: pathlib.Path | None = None
             if target.exists():
-                previous = _restore_previous_path(target)
+                _previous_reserved = _restore_previous_path(target)
+                _write_restore_intent(target, _previous_reserved, backup)
+            if target.exists():
+                assert _previous_reserved is not None
+                previous = _previous_reserved
                 os.replace(target, previous)
                 for sidecar in _sqlite_sidecars(target):
                     if _path_exists(sidecar):
@@ -461,6 +637,7 @@ def restore_backup(
             os.replace(temporary, target)
             installed = True
             _fsync_directory(target.parent)
+            _clear_restore_intent(target)
         except BaseException:
             # Roll back the complete SQLite file set.  A main database moved
             # without its WAL/SHM/journal is not a safe rollback state.
@@ -478,6 +655,9 @@ def restore_backup(
             if previous is not None and _path_exists(previous) and not _path_exists(target):
                 with contextlib.suppress(OSError):
                     os.replace(previous, target)
+            if _path_exists(target):
+                with contextlib.suppress(OSError):
+                    _clear_restore_intent(target)
             raise
         finally:
             with contextlib.suppress(OSError):

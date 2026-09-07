@@ -22,8 +22,8 @@
   },
   "expired_retry_still_sends": {
     "budget_exhausted_before_run": true,
-    "outcome": "completed",
-    "send_calls": 1
+    "outcome": "failed_terminal",
+    "send_calls": 0
   },
   "fictional_critical_branch_passes": {
     "missing": [],
@@ -54,15 +54,15 @@
   },
   "restore_process_death_loses_authority": {
     "child_exit": 73,
-    "deliveries_after_normal_reopen": 0,
-    "rollback_file_retained": true,
+    "deliveries_after_normal_reopen": 1,
+    "rollback_file_retained": false,
     "target_missing_after_crash": true
   },
   "restore_replays_acknowledged": {
-    "duplicate_send_calls": 1,
+    "duplicate_send_calls": 0,
     "history_rows": 1,
-    "outcome": "completed",
-    "restored_delivery": "prepared"
+    "outcome": "already_completed",
+    "restored_delivery": "completed"
   },
   "spawned_worker_log_redaction": {
     "process_exit": 0,

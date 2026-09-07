@@ -54,6 +54,52 @@ class RetryNotDue(StateError):
     pass
 
 
+def _recover_interrupted_restore_files(db_path: Path) -> None:
+    try:
+        resolved = db_path.resolve()
+    except OSError:
+        resolved = db_path
+    parent = resolved.parent
+    intent = parent / (resolved.name + ".restore-intent.json")
+    if intent.is_file():
+        try:
+            import json as _json
+            data = _json.loads(intent.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+        prev_name = data.get("previous") if isinstance(data, dict) else None
+        previous = parent / str(prev_name) if isinstance(prev_name, str) and prev_name else None
+        if not resolved.exists() and previous is not None and previous.is_file():
+            import os as _os
+            import contextlib as _ctx
+            with _ctx.suppress(OSError):
+                _os.replace(previous, resolved)
+            for suffix in ("-wal", "-shm", "-journal"):
+                orphan = Path(f"{previous}{suffix}")
+                dest = Path(f"{resolved}{suffix}")
+                if orphan.exists() and not dest.exists():
+                    with _ctx.suppress(OSError):
+                        _os.replace(orphan, dest)
+            if resolved.exists():
+                with _ctx.suppress(OSError):
+                    intent.unlink(missing_ok=True)
+                return
+        if resolved.exists():
+            import contextlib as _ctx2
+            with _ctx2.suppress(OSError):
+                intent.unlink(missing_ok=True)
+            return
+        raise StateError(
+            "interrupted restore detected; operator reconciliation required before creating fresh state"
+        )
+    if not resolved.exists():
+        legacy = resolved.with_suffix(resolved.suffix + ".pre-restore.bak")
+        if legacy.is_file():
+            raise StateError(
+                f"interrupted restore detected; rollback retained at {legacy}; operator reconciliation required"
+            )
+
+
 MIGRATION_REQUIRED_MESSAGE = (
     "database schema requires migration (migration_required); normal startup never migrates, "
     "use the audited current-schema migrate command"
@@ -455,6 +501,12 @@ class StateStore:
                     raise MigrationRequiredError(MIGRATION_REQUIRED_MESSAGE)
                 if existing.classification != "compatible":
                     raise StateError(f"state database is not writable: {existing.classification}: {existing.detail}")
+            try:
+                _recover_interrupted_restore_files(self.path)
+            except StateError:
+                raise
+            except Exception as exc:
+                raise StateError(f"restore recovery guard failed: {exc}") from exc
             self.path.parent.mkdir(parents=True, exist_ok=True)
             if maintenance_context is None:
                 held, hold_info = is_maintenance_held(self.path.resolve())
