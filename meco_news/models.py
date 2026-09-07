@@ -5,47 +5,21 @@ from datetime import datetime
 from hashlib import sha256
 import re
 import unicodedata
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from .urls import canonical_url
 
 
-TRACKING_PARAMETERS = {"fbclid", "gclid", "mc_cid", "mc_eid", "ref", "ref_src"}
+def _sanitize_scalar(value: object) -> tuple[str, bool]:
+    """Normalize text to Unicode scalars without invoking hostile ``__str__``."""
 
-
-def canonical_url(url: str) -> str:
-    """Remove common tracking noise while preserving an article's identity."""
-    try:
-        parts = urlsplit(url.strip())
-        hostname = (parts.hostname or parts.netloc).casefold().rstrip(".")
-        try:
-            hostname = unicodedata.normalize("NFKC", hostname).encode("idna").decode("ascii")
-        except (UnicodeError, ValueError):
-            hostname = hostname.casefold()
-        port = parts.port
-        netloc = hostname
-        if ":" in hostname and not hostname.startswith("["):
-            netloc = f"[{hostname}]"
-        if port and not ((parts.scheme.casefold() == "https" and port == 443) or (parts.scheme.casefold() == "http" and port == 80)):
-            netloc = f"{netloc}:{port}"
-        query = [
-            (key, value)
-            for key, value in parse_qsl(parts.query, keep_blank_values=True)
-            if not key.lower().startswith("utm_") and key.lower() not in TRACKING_PARAMETERS
-        ]
-        query.sort(key=lambda pair: (pair[0].casefold(), pair[1]))
-        path = parts.path.rstrip("/") or "/"
-        return urlunsplit((parts.scheme.lower(), netloc, path, urlencode(query), ""))
-    except ValueError:
-        return url.strip()
-
-
-def _sanitize_scalar(value: str) -> str:
-    # C4.1: replace lone surrogates and other invalid scalars before any processing
-    return "".join("\ufffd" if 0xD800 <= ord(ch) <= 0xDFFF else ch for ch in value)
+    if not isinstance(value, str):
+        return "", True
+    invalid = any(0xD800 <= ord(char) <= 0xDFFF for char in value)
+    return "".join("\ufffd" if 0xD800 <= ord(char) <= 0xDFFF else char for char in value), invalid
 
 
 def normalized_title(title: str, source: str = "") -> str:
-    title = _sanitize_scalar(title)
-    source = _sanitize_scalar(source)
+    title, _ = _sanitize_scalar(title)
+    source, _ = _sanitize_scalar(source)
     value = unicodedata.normalize("NFKC", title).casefold().strip()
     if source:
         suffix = f" - {source.casefold().strip()}"
@@ -76,15 +50,22 @@ class NewsItem:
     quarantine_reason: str = ""
 
     def __post_init__(self) -> None:
-        # C4.1: scalar validation at model boundary — quarantine lone surrogates before hashing/rendering
-        orig_title = self.title
-        orig_url = self.url
-        self.title = _sanitize_scalar(self.title)
-        self.url = _sanitize_scalar(self.url)
-        self.source = _sanitize_scalar(self.source)
-        self.source_url = _sanitize_scalar(self.source_url)
-        self.summary = _sanitize_scalar(self.summary)
-        if not self.quarantine_reason and any(0xD800 <= ord(c) <= 0xDFFF for c in orig_title + orig_url):
+        # C4.1: scalar validation at the model boundary.  Do not stringify
+        # mappings/objects here: their representation can be attacker-sized
+        # or raise while the model is being built.
+        invalid = False
+        for field_name in ("title", "url", "source", "source_url", "summary", "collector", "query_name", "topic", "topic_label", "relevance_reason", "source_id", "source_host"):
+            clean, field_invalid = _sanitize_scalar(getattr(self, field_name))
+            setattr(self, field_name, clean)
+            invalid = invalid or field_invalid
+        clean_matches: list[str] = []
+        for match in self.matches if isinstance(self.matches, list) else []:
+            clean_match, match_invalid = _sanitize_scalar(match)
+            if not match_invalid:
+                clean_matches.append(clean_match)
+            invalid = invalid or match_invalid
+        self.matches = clean_matches
+        if invalid and not self.quarantine_reason:
             self.quarantine_reason = "invalid_unicode_scalar"
 
     @property
@@ -93,7 +74,11 @@ class NewsItem:
 
     @property
     def title_key(self) -> str:
-        return sha256(normalized_title(self.title, self.source).encode("utf-8")).hexdigest()
+        # title-v2 is deliberately source-independent.  The optional source
+        # argument on normalized_title remains only for compatibility with
+        # callers that want to strip a publisher suffix explicitly.
+        normalized = normalized_title(self.title)
+        return sha256(b"meco-news:title-v2\0" + normalized.encode("utf-8")).hexdigest()
 
     @property
     def fingerprint(self) -> str:

@@ -1,0 +1,69 @@
+Review date: 2026-09-06
+Repository: D:\Desktop\test\meco news scraper
+Base HEAD: 1e820fc968c3dbb3dfa35904ee01a3131f7dfc70
+Scope: current working tree, including existing uncommitted changes.
+Runtime: Python 3.14.6 on Windows.
+
+Executed checks:
+
+1. .venv/Scripts/python.exe -B -m pytest -q -p no:cacheprovider
+   380 tests ran: 379 passed; one failed.
+   Failure: tests/test_c06_context.py::TestContext::test_verify_with_context
+   The test invokes scripts/verify-build-context.py with VERIFY_CONTEXT=1.
+   Its checkout-level .git/canary write targets a path protected by the filesystem sandbox.
+   The test assertion does not print the child stderr, so the exact child traceback was not captured.
+   Script inspection exposed overwrite/deletion of the real .env path.
+   There was no .env in the initial workspace inventory.
+   The destructive behavior was then independently reproduced in a disposable checkout.
+
+2. .venv/Scripts/python.exe -m ruff check meco_news tests
+   All checks passed.
+
+3. .venv/Scripts/python.exe -m mypy meco_news
+   Success: no issues found in 19 source files.
+
+4. python scripts/verify-build-context.py
+   Text mode passed and explicitly skipped actual Docker context inspection.
+   This result is not evidence of a safe actual build context/image.
+
+5. .venv/Scripts/python.exe -m coverage run --data-file=docs/reviews/2026-09-06/coverage-data -m pytest -o addopts='' -q -p no:cacheprovider --deselect=tests/test_c06_context.py::TestContext::test_verify_with_context
+   379 passed, 1 deselected in 62.31 seconds.
+   The unsafe checkout-mutating test was deliberately excluded from this repeat.
+   The original root .coverage file was not used or overwritten by this measurement.
+
+6. .venv/Scripts/python.exe -m coverage report --data-file=docs/reviews/2026-09-06/coverage-data
+   79%, exit 1: below configured fail_under=90.
+   Detailed output saved as coverage-summary.txt; raw JSON as coverage.json.
+
+7. python -B docs/reviews/2026-09-06/reproduce_findings.py
+   Completed. Outputs saved as reproductions.json.
+   Uses temporary directories, fabricated token/chat values, mocked collectors/Telegram responses,
+   and a controlled acquisition race. No public network or real messages.
+   The Windows PID probe runs only against a child created by the probe itself.
+   That child did not terminate in response to the liveness probe; do not report termination as reproduced.
+   Temporary fixture dates/deadlines are advanced directly where needed to test restart behavior.
+
+8. docker version --format '{{.Server.Version}}'
+   Docker CLI found, but daemon unavailable (docker_engine named pipe missing).
+   Docker config access was also restricted. No image build or runtime verification completed.
+
+9. .venv/Scripts/python.exe -m build --no-isolation --outdir docs/reviews/2026-09-06/dist
+   Failed before build: BackendUnavailable, cannot import setuptools.build_meta.
+   pip show confirmed setuptools/wheel absent in this venv.
+   This is an environment/tooling limitation, not proof that package source fails to build.
+
+10. Focused renderer probe:
+    NewsItem(title='T', url='https://example.com/' + 'a'*715, source='S',
+             topic_label='T', relevance_reason='R')
+    build_digest([item], 'MECO', 'UTC', max_length=900)
+    Raises ValueError: Telegram message exceeds UTF-16 unit limit.
+    The article block fits the limit alone; continuation-header addition causes overflow.
+
+Not exercised:
+Live Telegram, publisher availability/relevance, real SSRF/egress environment,
+Task Scheduler registration/run under the service identity, Linux Docker runtime,
+actual power cuts, external monitoring/notification delivery, signed release promotion.
+
+Production implementation and existing tests were not edited.
+Only review artifacts were deliberately added; existing scratch files and user changes were preserved.
+The source-manifest.sha256 records core application/test/script/config/build inputs after review.

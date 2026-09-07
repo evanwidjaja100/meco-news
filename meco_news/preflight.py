@@ -94,8 +94,12 @@ def run_preflight(config: AppConfig, *, online: bool = False, state_path: str | 
         total_bytes = int(usage.total)
     except OSError:
         free_bytes = 0
-    state_ok = bool(disk_ok and _disk_sufficient(free_bytes, total_bytes))
     wal_probe = inspection.probe_wal_capability(parent)
+    # WAL is part of the authoritative writer contract, not merely an
+    # informational probe.  A writable directory with a non-WAL journal
+    # cannot safely host the service, so it must make the conjunction false
+    # and receive the documented state-filesystem exit code.
+    state_ok = bool(disk_ok and _disk_sufficient(free_bytes, total_bytes) and wal_probe.ok)
     report["checks"]["state_filesystem"] = {
         "ok": state_ok,
         "directory": str(parent),
@@ -245,7 +249,17 @@ def healthcheck(
             status = store.status_snapshot()
     except Exception as exc:
         report["healthy"] = False
-        report["reasons"].append("state_unreadable")
+        inspected = inspection.inspect_state(path)
+        if inspected.classification in {"migration_required", "newer_incompatible", "malformed"}:
+            report["reasons"].append("incompatible_schema")
+            report["schema"] = {
+                "ok": False,
+                "actual": inspected.schema_version,
+                "expected": CURRENT_SCHEMA_VERSION,
+                "classification": inspected.classification,
+            }
+        else:
+            report["reasons"].append("state_unreadable")
         report["error_class"] = type(exc).__name__
         return False, report
     report["status"] = status
@@ -354,12 +368,33 @@ def healthcheck(
             if now_local >= due_today:
                 report["healthy"] = False
                 report["reasons"].append("overdue_delivery")
-    # C3.5: all_sources_failed retry exhaustion is unhealthy (distinct from completed_empty)
+
+    def budget_exhausted(delivery_id: int, *, chunk_id: int | None = None) -> bool:
+        # The initial status probe intentionally closes its read connection
+        # before the remaining health checks.  Reopen a fresh read-only
+        # connection for persisted retry-budget queries instead of reusing a
+        # closed StateStore instance.
+        with StateStore(path, readonly=True) as retry_store:
+            return retry_store.retry_budget_exhausted(
+                delivery_id,
+                chunk_id=chunk_id,
+                max_attempts=int(getattr(getattr(config, "retry_policy", None), "max_attempts", 4)),
+                max_elapsed_seconds=int(getattr(getattr(config, "retry_policy", None), "max_elapsed_seconds", 604_800)),
+                now=now,
+            )
+
+    # C3.5: all-source outage is unhealthy while it is retrying, and becomes
+    # explicitly exhausted once the persisted attempt/elapsed budget is spent.
     if active.get("state") == "retry_wait" and "all_sources_failed" in str(active.get("terminal_error", "")):
-        # Exhausted source retries are unsafe even though no Telegram chunk is
-        # currently ambiguous; they must not look like a healthy idle retry.
         report["healthy"] = False
-        report["reasons"].append("all_sources_failed_retry_exhausted")
+        report["reasons"].append("all_sources_failed")
+        try:
+            source_retry_exhausted = budget_exhausted(int(active["delivery_id"]))
+        except (KeyError, TypeError, ValueError, StateError, sqlite3.Error):
+            source_retry_exhausted = True
+        report.setdefault("retry", {})["collection_exhausted"] = source_retry_exhausted
+        if source_retry_exhausted:
+            report["reasons"].append("all_sources_failed_retry_exhausted")
     # C1.3: a head chunk stuck in retry_wait past the configured retry budget
     # is exhausted, not waiting. Transient retries with attempts left stay
     # healthy so normal backoff does not flap monitoring; delivery-level
@@ -367,7 +402,15 @@ def healthcheck(
     # overdue_delivery instead.
     max_attempts = int(getattr(getattr(config, "retry_policy", None), "max_attempts", 4))
     chunk = status.get("active_chunk") or {}
-    if chunk.get("state") == "retry_wait" and int(chunk.get("attempt_count", 0)) >= max_attempts:
+    chunk_exhausted = False
+    if chunk.get("state") == "retry_wait":
+        chunk_exhausted = int(chunk.get("attempt_count", 0)) >= max_attempts
+        if not chunk_exhausted and active:
+            try:
+                chunk_exhausted = budget_exhausted(int(active["delivery_id"]), chunk_id=int(chunk["chunk_id"]))
+            except (KeyError, TypeError, ValueError, StateError, sqlite3.Error):
+                chunk_exhausted = True
+    if chunk_exhausted:
         report["healthy"] = False
         report["reasons"].append("chunk_retry_exhausted")
         report["retry"] = {

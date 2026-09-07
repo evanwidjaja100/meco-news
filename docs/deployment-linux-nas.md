@@ -4,7 +4,7 @@ Use local POSIX storage for SQLite. SMB/NFS state is unsupported unless a separa
 
 1. Create `.env` from `.env.example`, set the Telegram credentials, and protect it with mode `0600`.
 2. Review `config/watchlist.json` with `python -m meco_news --config-show --json`.
-3. Build from a release commit. Production promotion must replace the local Python base tag with the exact digest recorded in the release manifest.
+3. Build from a release commit. The repository default is digest-pinned, and production promotion must use the exact base and final image digests recorded in the release manifest.
 4. Start one scheduler:
 
    ```sh
@@ -23,4 +23,3 @@ docker compose exec meco-news python -m meco_news --healthcheck --json
 ```
 
 Run one backup before upgrades and verify the manifest checksum. Stop the old scheduler before deploying a new image; the SQLite lease is a defense in depth, not permission to run two schedulers indefinitely.
-

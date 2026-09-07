@@ -6,7 +6,7 @@ The watchlist covers MECO mentions plus process plants, tanks, pressure vessels,
 
 ## Quick start
 
-Use Python 3.12 or 3.13 and local NTFS/POSIX storage.
+Use Python 3.12, 3.13, or 3.14 and local NTFS/POSIX storage.
 
 ```powershell
 Copy-Item .env.example .env
@@ -15,7 +15,7 @@ python -m meco_news --preflight --json
 python -m meco_news --discover-chat
 # put the returned ID in .env
 python -m meco_news --test-telegram
-python -m meco_news --dry-run --verbose
+python -m meco_news --dry-run --frozen-input tests/fixtures/frozen-empty-v1.json --verbose
 python -m meco_news
 ```
 
@@ -37,7 +37,7 @@ If at least one source succeeds but no eligible story remains, the service sends
 
 `--force` creates a new audited generation only after the date is complete and no ambiguity exists. It still excludes acknowledged URL/title history; it is not a replay command.
 
-Schema migration uses an explicit audited command (`--migrate --to-version N`), but execution stays disabled until the C2.2 exclusive maintenance guard exists: it always fails closed with `maintenance_unavailable` (exit 1) and changes no state. Runtime startup never auto-migrates; a state database that needs migration fails closed with `migration_required`.
+Schema migration uses an explicit audited command (`--migrate --to-version N`). The command takes the exclusive maintenance guard, creates a uniquely reserved pre-migration database/manifest pair, verifies it, and then applies the immutable catalog. Runtime startup never auto-migrates; a state database that needs migration fails closed with `migration_required`.
 
 ## Safe operations
 
@@ -50,7 +50,14 @@ python -m meco_news --healthcheck --json
 python -m meco_news --backup backups\
 ```
 
-Dry-run performs collection and ranking but does not create, migrate, write, lease, send, schedule, or create a log/status file. When a state database already exists it reads history read-only; use `--ignore-history` for an intentional all-candidate preview. Invalid option combinations fail with exit code 2 before state or network initialization.
+Read-only metrics and redacted health receipts are available without opening a writable delivery session:
+
+```powershell
+python -m meco_news --metrics
+python -m meco_news --healthcheck --alert-file logs/health-alerts.jsonl --json
+```
+
+Dry-run evaluates an explicitly supplied version-1 frozen-input JSON file through normalization, history filtering, ranking, deduplication, and final rendering. It does not collect, create, migrate, write, lease, send, schedule, or create a log/status file. The file must contain `schema_version`, `collected_at`, `items`, `source_results`, `issues`, `duration_ms`, and `history`; `--input` is an alias for `--frozen-input`. Use `--ignore-history` for an intentional all-candidate preview. Invalid option combinations or missing/invalid input fail with exit code 2 before state or network initialization.
 
 Preflight (`--preflight`) is read-only: it never creates, migrates, writes, or WAL/SHM-sidecars the state database, and `ready` is the pure conjunction of the mandatory checks (timezone, runtime, state filesystem, maintenance, database, lease, secrets, plus online checks when requested). Exit codes are deterministic for multiple failures, highest precedence first: 9 unsupported Python (`>=3.12,<3.15` required), 4 state filesystem, 8 maintenance in progress, 5 schema (missing ledger objects, checksum mismatch, migration-required N-1, or newer N+1), 6 active lease, 3 secrets, 7 online. A missing database reports `missing`/`not_yet_created` and stays ready; anything else non-compatible is fail-closed.
 

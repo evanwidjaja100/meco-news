@@ -1,37 +1,54 @@
 # Production-readiness status — NO-GO
 
-**Status:** **NO-GO — supervised non-production pilot only**
-**Release state:** `NO-GO` until Closure Gates CG0..CG7 pass (see `PRODUCTION_READINESS_CLOSURE_IMPLEMENTATION_PLAN.md:1844-1858`)
-**Baseline:** commit `249594c` (2026-08-24 imported snapshot, `docs/evidence/c0.1/source-declaration.md`)
-**Decisions:** `docs/decisions/adr-index.json` (D1-D12 decided where applicable; ADR-C03/C04/C05/C06/C08/C09/C10/C11/C13/C15/C16 pending signatures)
-**Finding ledger:** `docs/evidence/c0.1/issue-ledger.md` (F-001..F-028, all Open, each needs red test + impl + review + evidence)
-**Evidence schema:** `docs/evidence/evidence-schema.json`
+**As of:** 2026-09-07 (Asia/Jakarta)<br>
+**Release state:** **NO-GO — supervised non-production pilot only**<br>
+**Controlling backlog:** [PRODUCTION_READINESS_CLOSURE_IMPLEMENTATION_PLAN.md](../PRODUCTION_READINESS_CLOSURE_IMPLEMENTATION_PLAN.md)<br>
+**Local evidence:** [production-readiness/local-2026-09-07/index.json](evidence/production-readiness/local-2026-09-07/index.json)
 
-No gate may be marked complete because a file or test exists. Completion requires closure-plan evidence and independent review (predecessor `PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md:41-44`).
+This is an implementation checkpoint, not a closure certificate. Code, tests, and local tool output are implementer evidence. A finding remains open until its required independent review, exact-candidate evidence, target checks, and approval are recorded in the controlling plan.
 
-## Verified local facts (2026-08-26 — Windows primary, Docker exact-candidate only)
+## Verified local facts
 
-- 150 tests passed (was 23/23 at rebaseline), Ruff 0.9.10 check/format passed, mypy 1.15 strict passed, wheel/sdist built.
-- **90% total coverage** (`3118 stmts`, `258 miss`) — passes `C6.1` `≥90%` (was `59%`).
-- Compose syntax, PowerShell `install-windows-task.ps1` parsing, **text** `build-context` sentinel passed; **actual** `context/layer` is `C6.4/C6.6` exact-candidate only (requires `docker buildx`).
-- **Windows Task** (`S4U`, `IgnoreNew`, `StartWhenAvailable`, `venv` `.\.venv\Scripts\python.exe`) is the **primary** deployment — `Docker` is **not** required for `CG0..CG5` local. `Linux/NAS` `Docker` is `C6.6` exact-candidate only.
-- No usable Git provenance before this snapshot (now declared as imported baseline per `C0.1`); `main` at `dfba24b` is `90%` local.
+- 509 tests collected; the fresh full `pytest` suite passed.
+- Statement coverage: 5,749 / 6,147 (93.525%). Branch coverage: 1,829 / 2,032 (90.010%). The critical-branch register passed: 8 registered, 0 missing, 0 unknown.
+- Ruff passed for `meco_news`, `tests`, and `scripts`; mypy strict passed for 22 source modules.
+- A wheel and sdist built successfully. Both were installed into clean temporary environments outside the checkout; each CLI smoke test imported from the temporary environment and passed.
+- The safe synthetic build-context tests passed. `.dockerignore` lint passed, but actual Docker context/image/layer/history/runtime verification is **blocked** because the Docker Desktop Linux daemon is unavailable on this host. No fallback success is claimed.
+- The migration, backup, restore, maintenance-lock, WAL-read, authority, Telegram-envelope, hostile-input, bounded-worker, scheduler, metrics, alert, and CLI regression suites use disposable fixtures. No production Telegram request, live scheduler installation, production database, or real credential was used.
 
-## What remains open (all mandatory)
+## R01–R20 implementation status
 
-- **CG0 — Provenance/decisions/reproducers:** `C0.1` manifest done, branch `main` local-only, protection requires remote + `branch-protection.json`; `C0.2` decisions frozen but pending owner/release/security signatures; `C0.3` red reproducers for every `F-###` not yet linked.
-- **CG1 — Truthful control plane:** CLI, preflight, health, logging/reporting reproduces false-green per `F-002/003/004/020` (see `PRODUCTION_READINESS_CLOSURE_IMPLEMENTATION_PLAN.md:278-285`).
-- **CG2 — State authority:** migration immutability, non-owner transition, generation-zero, restore active-work (`F-005/006/007/008/011`).
-- **CG3 — Telegram ambiguity/retry/outbox/scheduler** (`F-009/010/011/012/013`).
-- **CG4 — Hostile input/determinism** (`F-014/015/016/017/018/019`).
-- **CG5 — Metrics/alerts/backup/platform** (`F-021/022/023/024/027`).
-- **CG6 — Full CI/coverage/locks/signed candidate** (`F-025/026` + exact-candidate target gates).
-- **CG7 — Shadow/canary/rollback/72h** (`F-028`).
+The locally implementable behavior and regression coverage are present. All rows remain open for formal closure until the evidence and review requirements in Section 7.1 are satisfied.
 
-## Target vs verified
+| ID | Local checkpoint | Remaining closure dependency |
+|---|---|---|
+| R01 | Ack-failure uncertainty and orphan recovery paths implemented and tested | Independent fault/restart replay review; target durability evidence |
+| R02 | WAL-aware read paths and unavailable/fail-closed classification implemented and tested | Target filesystem/WAL evidence |
+| R03 | Shared/exclusive OS guard, process identity, and maintenance fencing implemented and tested | Cross-platform contention and target lock evidence |
+| R04 | Verified backup/restore, sidecar handling, unresolved-work refusal, and post-backup reconciliation implemented and tested | Restore fault matrix, second operator, target RPO/RTO evidence |
+| R05 | FULL synchronous policy, intent-before-send, and failure classification implemented and tested | Host power-loss/storage durability evidence |
+| R06 | Persisted retry attempt/elapsed budgets and terminal exhaustion implemented and tested | Full target scheduler/date-transition replay evidence |
+| R07 | Transaction-local lease/fence/owner checks and chunk/run/mapping binding implemented and tested | Independent mutator inventory review |
+| R08 | Strict Telegram response-envelope and destination validation implemented and tested | Independent transport review |
+| R09 | Truthful preflight, health, status, WAL probe, and exit precedence implemented and tested | Target health/alert observation |
+| R10 | Disposable context verifier, canaries, positive leak control, and explicit Docker blocking implemented and tested | Real Docker inspection on candidate image |
+| R11 | Validated version-1 frozen-input dry-run implemented and tested offline | Independent subprocess/no-side-effect review |
+| R12 | Frozen delivery payload/config provenance and audited destination mismatch handling implemented and tested | End-to-end target destination-change review |
+| R13 | Atomic backup reservation, manifest-last publication, missing-source refusal, and collision tests implemented | Scheduled/off-host backup and retention evidence |
+| R14 | Source-document shape validation and per-source quarantine implemented and tested | Target feed corpus/review |
+| R15 | Bounded deterministic fuzzy dedup with exhaustion-safe output implemented and tested | Independent adversarial corpus review |
+| R16 | HTML validation, escaping, continuation sizing, limits, and sibling retention implemented and tested | Live API contract verification |
+| R17 | Report-mode stdout isolation and stderr diagnostics implemented and tested | Subprocess matrix on candidate artifact |
+| R18 | Recursive redaction for messages, fields, exceptions, worker output, and sinks implemented and tested | Security review and sink inspection |
+| R19 | Framed bounded worker IPC, per-source/cycle deadlines, termination, and reaping implemented and tested | Target process/shutdown evidence |
+| R20 | Typed scheduler outcomes, config revalidation, lease heartbeats, stop handling, and bounded shutdown implemented and tested | Target scheduler registration and live stop/restart evidence |
 
-*Target architecture* is in `docs/architecture.md` and predecessor Wave 7. *Verified behavior* is this snapshot plus `C0.3` red tests. Do not treat design docs as verification. See closure plan `13` Evidence and Issue Format for required retention.
+## Section 7.2 and release gates still open
 
-## Operating posture
+- F-016 egress proof still needs controlled target endpoints and positive target firewall/egress evidence; application DNS pinning and proxy-disabled behavior are not a substitute for target proof.
+- F-023 needs target-specific process identity/liveness evidence, including access-denied and PID-reuse cases.
+- F-025/F-026 need remote CI evidence for the declared 3.12–3.14 matrix, transitive lock review, signed provenance, SBOM, and an exact candidate digest.
+- F-021/F-022/F-027 need an independent alert channel, scheduled/off-host backups, retention/prune receipts, second-operator restore, and target-platform evidence.
+- CG0–CG7 still require authoritative provenance/decisions, non-author review, protected source, exact-candidate Docker/target checks, human release approvals, shadow/canary/rollback authorization, and the 72-hour observation record.
 
-Until `RA-P`-authorized `C7.4/W8.4` cutover, operate as **supervised pilot in non-production chat** only. From cutover through `CG7`, permitted posture is `CONTROLLED_PRODUCTION_OBSERVATION` under approved stop thresholds. Unattended production-ready operation only after `CG7` (predecessor `PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md:1891`).
+Until RA-P-authorized cutover, operate only in a supervised non-production chat. Even after cutover, the permitted posture is `CONTROLLED_PRODUCTION_OBSERVATION` until CG7 passes.

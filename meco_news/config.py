@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+from types import MappingProxyType
 from typing import Any
 from collections.abc import Iterator, Mapping
 
@@ -30,6 +31,8 @@ class ConfigurationError(ValueError):
 class CollectionLimits:
     response_bytes: int = 5 * 1024 * 1024
     source_deadline_seconds: int = 35
+    cycle_deadline_seconds: int = 120
+    ipc_frame_bytes: int = 4 * 1024 * 1024
     socket_timeout_seconds: int = 5
     max_redirects: int = 2
     entries_per_source: int = 250
@@ -59,6 +62,7 @@ class RetryPolicy:
     base_delay_seconds: int = 60
     max_delay_seconds: int = 3_600
     jitter_seconds: int = 15
+    max_elapsed_seconds: int = 604_800
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +121,8 @@ _TOP_LEVEL_KEYS = {
 _LIMIT_KEYS = {
     "response_bytes",
     "source_deadline_seconds",
+    "cycle_deadline_seconds",
+    "ipc_frame_bytes",
     "socket_timeout_seconds",
     "max_redirects",
     "entries_per_source",
@@ -132,13 +138,40 @@ _LIMIT_KEYS = {
     "max_query_chars",
 }
 _NETWORK_KEYS = {"allowed_redirect_hosts", "same_host_redirects_only", "require_https"}
-_RETRY_KEYS = {"enabled", "max_attempts", "base_delay_seconds", "max_delay_seconds", "jitter_seconds"}
+_RETRY_KEYS = {
+    "enabled",
+    "max_attempts",
+    "base_delay_seconds",
+    "max_delay_seconds",
+    "jitter_seconds",
+    "max_elapsed_seconds",
+}
 _TOPIC_KEYS = {"id", "label", "why", "strong_terms", "keywords", "requires_any"}
 _FEED_KEYS = {"id", "name", "url"}
 _QUERY_KEYS = {"id", "name", "query"}
 _GOOGLE_KEYS = {"enabled", "locale", "country", "edition", "queries"}
 _GDELT_KEYS = {"enabled", "timespan", "max_records", "queries"}
 _MISSING_DATE_POLICIES = {"exclude", "include"}
+
+
+def _freeze(value: Any) -> Any:
+    """Recursively freeze the compatibility mapping kept on AppConfig."""
+
+    if isinstance(value, dict):
+        return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, tuple):
+        return tuple(_freeze(item) for item in value)
+    return value
+
+
+def _thaw(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _thaw(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw(item) for item in value]
+    return value
 
 
 def _ensure_keys(value: Mapping[str, Any], allowed: set[str], context: str) -> None:
@@ -223,7 +256,7 @@ class AppConfig(Mapping[str, Any]):
     limits: CollectionLimits
     network_policy: NetworkPolicy
     retry_policy: RetryPolicy
-    _raw: dict[str, Any]
+    _raw: Mapping[str, Any]
 
     def __getitem__(self, key: str) -> Any:
         return self._raw[key]
@@ -246,7 +279,7 @@ class AppConfig(Mapping[str, Any]):
         return self.rss_typed
 
     def as_dict(self) -> dict[str, Any]:
-        return copy.deepcopy(self._raw)
+        return copy.deepcopy(_thaw(self._raw))
 
     def redacted(self) -> dict[str, Any]:
         # C1.4: recursive redaction through the shared log sanitizer so a
@@ -258,7 +291,7 @@ class AppConfig(Mapping[str, Any]):
 
     @property
     def config_hash(self) -> str:
-        payload = json.dumps(self._raw, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        payload = json.dumps(self.as_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -269,6 +302,8 @@ def _parse_limits(raw: Mapping[str, Any]) -> CollectionLimits:
     hard = {
         "response_bytes": 20 * 1024 * 1024,
         "source_deadline_seconds": 120,
+        "cycle_deadline_seconds": 900,
+        "ipc_frame_bytes": 16 * 1024 * 1024,
         "socket_timeout_seconds": 30,
         "max_redirects": 8,
         "entries_per_source": 2_000,
@@ -286,6 +321,8 @@ def _parse_limits(raw: Mapping[str, Any]) -> CollectionLimits:
     minimums = {
         "response_bytes": 1024,
         "source_deadline_seconds": 1,
+        "cycle_deadline_seconds": 1,
+        "ipc_frame_bytes": 64 * 1024,
         "socket_timeout_seconds": 1,
         "max_redirects": 0,
         "entries_per_source": 1,
@@ -445,6 +482,8 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     limits = _parse_limits(raw_input.get("limits", {}))
     if request_timeout > limits.source_deadline_seconds:
         raise ConfigurationError("request_timeout_seconds must not exceed limits.source_deadline_seconds")
+    if limits.cycle_deadline_seconds < limits.source_deadline_seconds:
+        raise ConfigurationError("limits.cycle_deadline_seconds must cover one source deadline")
     if lease_ttl < limits.source_deadline_seconds + 30:
         raise ConfigurationError("lease_ttl_seconds must exceed the source deadline by at least 30 seconds")
     topics = _parse_topics(raw_input.get("topics"))
@@ -511,6 +550,9 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         base_delay_seconds=_integer(retry_raw.get("base_delay_seconds", 60), "retry_policy.base_delay_seconds", 1, 86_400),
         max_delay_seconds=_integer(retry_raw.get("max_delay_seconds", 3_600), "retry_policy.max_delay_seconds", 1, 604_800),
         jitter_seconds=_integer(retry_raw.get("jitter_seconds", 15), "retry_policy.jitter_seconds", 0, 3600),
+        max_elapsed_seconds=_integer(
+            retry_raw.get("max_elapsed_seconds", 604_800), "retry_policy.max_elapsed_seconds", 60, 2_592_000
+        ),
     )
     if retry_policy.base_delay_seconds > retry_policy.max_delay_seconds:
         raise ConfigurationError("retry_policy.base_delay_seconds must not exceed max_delay_seconds")
@@ -601,5 +643,5 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         limits=limits,
         network_policy=network_policy,
         retry_policy=retry_policy,
-        _raw=normalized,
+        _raw=_freeze(normalized),
     )

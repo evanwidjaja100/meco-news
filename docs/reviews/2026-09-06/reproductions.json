@@ -1,0 +1,134 @@
+{
+  "ack_write_failure_duplicates": {
+    "first_chunk_states": [
+      "in_flight"
+    ],
+    "first_outcome": "failed_terminal",
+    "second_outcome": "completed",
+    "send_calls": 2
+  },
+  "backup_missing_source": {
+    "created_source": true,
+    "returned_backup": true
+  },
+  "cli_json_single_document": false,
+  "config_edit_blocks_frozen_delivery": {
+    "ambiguous_chunks": 0,
+    "outcome": "needs_attention",
+    "send_calls": 0
+  },
+  "corrupt_status": {
+    "application_version": "",
+    "next_due_at": "2026-09-07T07:00:00+07:00",
+    "schema_version": 0,
+    "state": "missing"
+  },
+  "dedup_budget": {
+    "exhausted_count": 2,
+    "normal_count": 1
+  },
+  "dry_run": {
+    "collect_called": false,
+    "outcome": "dry_run",
+    "preview_first_line": "Collected 0 raw items; selected 0 unsent stories."
+  },
+  "log_message_redaction": {
+    "secret_survives": true
+  },
+  "maintenance_race": {
+    "live_after_race": 1,
+    "successful_acquires": 2
+  },
+  "non_feed_xml": {
+    "accepted_count": 0,
+    "outcome": "succeeded"
+  },
+  "non_owner_completion": {
+    "lease_owner": "owner",
+    "state": "completed_empty"
+  },
+  "open_writer_during_maintenance": {
+    "guard_live": true,
+    "write_succeeded": true
+  },
+  "preflight_with_live_wal_lease": {
+    "code": 0,
+    "lease_check": null,
+    "ready": true
+  },
+  "restore_discards_prepared": {
+    "delivery_count_after": 0
+  },
+  "retry_budget_reset": [
+    {
+      "attempts": 1,
+      "generation": 0,
+      "outcome": "retry_wait"
+    },
+    {
+      "attempts": 2,
+      "generation": 0,
+      "outcome": "retry_wait"
+    },
+    {
+      "attempts": 3,
+      "generation": 0,
+      "outcome": "retry_wait"
+    },
+    {
+      "attempts": 4,
+      "generation": 0,
+      "outcome": "failed_terminal"
+    },
+    {
+      "attempts": 1,
+      "generation": 1,
+      "outcome": "retry_wait"
+    }
+  ],
+  "sentinel_destroys_existing_env": {
+    "env_exists_after": false
+  },
+  "stuck_first_delivery_health": {
+    "healthy": true,
+    "reasons": []
+  },
+  "telegram_envelope_validation": [
+    {
+      "body": "{}",
+      "outcome": "rejected_terminal"
+    },
+    {
+      "accepted_message_id": "None",
+      "body": "{\"ok\":true,\"result\":{\"message_id\":null}}"
+    },
+    {
+      "accepted_message_id": "12",
+      "body": "{\"ok\":\"false\",\"result\":{\"message_id\":12}}"
+    }
+  ],
+  "telegram_named_entities": {
+    "unsupported": [
+      "middot"
+    ]
+  },
+  "wal_probe_ignored": {
+    "code": 0,
+    "ready": true,
+    "wal": {
+      "journal_mode": "delete",
+      "ok": false,
+      "reason": "no WAL"
+    }
+  },
+  "wal_visibility": {
+    "reader_deliveries": 0,
+    "reader_lease": false,
+    "writer_deliveries": 1,
+    "writer_lease": true
+  },
+  "windows_pid_probe": {
+    "child_exit_code": null,
+    "reported_alive": true
+  }
+}

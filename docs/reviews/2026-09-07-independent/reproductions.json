@@ -1,0 +1,72 @@
+{
+  "abandoned_first_delivery_health": {
+    "healthy": true,
+    "reasons": [],
+    "state": "collecting"
+  },
+  "concurrent_backup_lock_owners": {
+    "first_held": true,
+    "marker_owner": "first",
+    "second_held": true
+  },
+  "corrupt_database_status_cli": {
+    "actual_file_exists": true,
+    "exit_code": 0,
+    "reported_state": "missing"
+  },
+  "destination_revert_still_blocked": {
+    "changed": "needs_attention",
+    "documented_resolution": "InvalidTransition: only an ambiguous or explicitly retry-safe terminal chunk can be resolved",
+    "reverted": "needs_attention",
+    "send_calls": 0
+  },
+  "expired_retry_still_sends": {
+    "budget_exhausted_before_run": true,
+    "outcome": "completed",
+    "send_calls": 1
+  },
+  "fictional_critical_branch_passes": {
+    "missing": [],
+    "passed": true,
+    "registered": 1,
+    "unknown": []
+  },
+  "fictitious_signature_passes": {
+    "failures": [],
+    "passed": true,
+    "signature": {
+      "state": "signed"
+    }
+  },
+  "lease_budget_validation": {
+    "accepted_lease_ttl": 65,
+    "collection_cycle_budget": 120,
+    "outcome": "failed_terminal",
+    "persisted_state": "collecting",
+    "send_calls": 0,
+    "simulated_collection_seconds": 70
+  },
+  "malformed_frozen_input_cli": {
+    "exit_code": 1,
+    "log_created": false,
+    "stdout": "",
+    "traceback": true
+  },
+  "restore_process_death_loses_authority": {
+    "child_exit": 73,
+    "deliveries_after_normal_reopen": 0,
+    "rollback_file_retained": true,
+    "target_missing_after_crash": true
+  },
+  "restore_replays_acknowledged": {
+    "duplicate_send_calls": 1,
+    "history_rows": 1,
+    "outcome": "completed",
+    "restored_delivery": "prepared"
+  },
+  "spawned_worker_log_redaction": {
+    "process_exit": 0,
+    "stderr_has_traceback": true,
+    "synthetic_password_visible_in_stderr": true
+  }
+}

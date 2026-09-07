@@ -3,8 +3,17 @@
 .env.*
 !.env.example
 data/
+backups/
+**/backups/
 *.db
 *.db-*
+*.bak
+*.manifest.json
+*.replication.json
+*.maintenance.json
+*.maintenance.fence
+*.guard.lock
+*.backup.lock
 logs/
 __pycache__/
 *.py[cod]
@@ -17,4 +26,3 @@ build/
 research/
 tests/
 PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md
-

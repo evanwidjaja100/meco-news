@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from http.client import IncompleteRead, HTTPException
+from http.client import HTTPConnection, HTTPSConnection, IncompleteRead, HTTPException
+import contextlib
+import ipaddress
+import ssl
+import socket
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urljoin
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.parse import urljoin, urlsplit
+from urllib.request import HTTPRedirectHandler, build_opener
 
 from .config import CollectionLimits, NetworkPolicy
 from .urls import (
@@ -50,6 +54,50 @@ class _NoRedirectHandler(HTTPRedirectHandler):
         return None
 
 
+class _PinnedHTTPConnection(HTTPConnection):
+    """HTTP connection whose socket target is an already validated address."""
+
+    def __init__(self, hostname: str, port: int, address: str, timeout: float) -> None:
+        super().__init__(hostname, port, timeout=timeout)
+        self._pinned_address = address
+
+    def connect(self) -> None:
+        address = ipaddress.ip_address(self._pinned_address)
+        family = socket.AF_INET6 if address.version == 6 else socket.AF_INET
+        sock = socket.socket(family, socket.SOCK_STREAM)
+        try:
+            sock.settimeout(self.timeout)
+            destination: tuple[Any, ...] = (self._pinned_address, self.port, 0, 0) if family == socket.AF_INET6 else (self._pinned_address, self.port)
+            sock.connect(destination)
+        except BaseException:
+            sock.close()
+            raise
+        self.sock = sock
+
+
+class _PinnedHTTPSConnection(HTTPSConnection):
+    """TLS connection that pins TCP routing while retaining hostname SNI."""
+
+    def __init__(self, hostname: str, port: int, address: str, timeout: float) -> None:
+        self._tls_context = ssl.create_default_context()
+        self._tls_server_hostname = hostname
+        super().__init__(hostname, port, timeout=timeout, context=self._tls_context)
+        self._pinned_address = address
+
+    def connect(self) -> None:
+        address = ipaddress.ip_address(self._pinned_address)
+        family = socket.AF_INET6 if address.version == 6 else socket.AF_INET
+        sock = socket.socket(family, socket.SOCK_STREAM)
+        try:
+            sock.settimeout(self.timeout)
+            destination: tuple[Any, ...] = (self._pinned_address, self.port, 0, 0) if family == socket.AF_INET6 else (self._pinned_address, self.port)
+            sock.connect(destination)
+            self.sock = self._tls_context.wrap_socket(sock, server_hostname=self._tls_server_hostname)
+        except BaseException:
+            sock.close()
+            raise
+
+
 class BoundedHTTPClient:
     """HTTP client with a hard byte ceiling and a monotonic deadline."""
 
@@ -65,7 +113,12 @@ class BoundedHTTPClient:
         self.network_policy = network_policy or NetworkPolicy()
         self.user_agent = user_agent
         self.allow_private_for_tests = allow_private_for_tests
-        self._opener = build_opener(_NoRedirectHandler())
+        # Sources never inherit ambient HTTP(S)_PROXY settings.  The network
+        # policy has no implicit proxy mode; a future proxy must be an
+        # explicitly reviewed, separately pinned path.
+        from urllib.request import ProxyHandler
+
+        self._opener = build_opener(_NoRedirectHandler(), ProxyHandler({}))
 
     def _validated(self, value: object) -> ValidatedURL:
         return validate_url(
@@ -75,8 +128,8 @@ class BoundedHTTPClient:
             allow_private=self.allow_private_for_tests,
         )
 
-    def _validate_origin(self, target: ValidatedURL) -> None:
-        validate_resolved_addresses(
+    def _validate_origin(self, target: ValidatedURL) -> list[str]:
+        return validate_resolved_addresses(
             target.hostname,
             target.port,
             allow_private=self.allow_private_for_tests,
@@ -91,44 +144,52 @@ class BoundedHTTPClient:
             if remaining <= 0:
                 raise NetworkError("source_deadline_exceeded", "source deadline exceeded")
             try:
-                self._validate_origin(current)
-                request = Request(
-                    current.normalized_url,
-                    headers={
-                        "User-Agent": self.user_agent,
-                        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, application/json, */*",
-                        "Accept-Encoding": "identity",
-                    },
-                    method="GET",
-                )
-                with self._opener.open(request, timeout=min(float(self.limits.socket_timeout_seconds), max(0.1, remaining))) as response:
-                    status = int(getattr(response, "status", response.getcode()))
+                addresses = self._validate_origin(current)
+                response = self._open_pinned(current, addresses[0], remaining)
+                try:
+                    status = int(response.status)
                     if status in REDIRECT_CODES:
-                        location = response.headers.get("Location", "")
+                        location = response.getheader("Location", "") or ""
                         response.close()
                         if hop >= self.limits.max_redirects:
                             raise NetworkError("redirect_limit", "redirect limit exceeded")
                         current = self._redirect_target(current, location)
                         continue
+                    if status == 429:
+                        raise NetworkError("http_429", "source returned HTTP 429")
+                    if 500 <= status <= 599:
+                        raise NetworkError("http_5xx", f"source returned HTTP {status}")
+                    if status >= 400:
+                        raise NetworkError("http_error", f"source returned HTTP {status}", retryable=False)
                     payload = self._read_bounded(response, deadline)
                     return FetchResponse(
                         url=current,
                         payload=payload,
                         status=status,
-                        content_type=response.headers.get("Content-Type", ""),
+                        content_type=response.getheader("Content-Type", "") or "",
                     )
+                finally:
+                    response.close()
             except HTTPError as exc:
-                if exc.code in REDIRECT_CODES:
-                    if hop >= self.limits.max_redirects:
-                        raise NetworkError("redirect_limit", "redirect limit exceeded") from exc
-                    location = exc.headers.get("Location", "") if exc.headers else ""
-                    current = self._redirect_target(current, location)
-                    continue
-                if exc.code == 429:
-                    raise NetworkError("http_429", "source returned HTTP 429") from exc
-                if 500 <= exc.code <= 599:
-                    raise NetworkError("http_5xx", f"source returned HTTP {exc.code}") from exc
-                raise NetworkError("http_error", f"source returned HTTP {exc.code}", retryable=False) from exc
+                try:
+                    if exc.code in REDIRECT_CODES:
+                        if hop >= self.limits.max_redirects:
+                            raise NetworkError("redirect_limit", "redirect limit exceeded") from exc
+                        location = exc.headers.get("Location", "") if exc.headers else ""
+                        current = self._redirect_target(current, location)
+                        continue
+                    if exc.code == 429:
+                        raise NetworkError("http_429", "source returned HTTP 429") from exc
+                    if 500 <= exc.code <= 599:
+                        raise NetworkError("http_5xx", f"source returned HTTP {exc.code}") from exc
+                    raise NetworkError("http_error", f"source returned HTTP {exc.code}", retryable=False) from exc
+                finally:
+                    # HTTPError owns the response body returned by urllib.  A
+                    # classified error is still a response and must not leak
+                    # its socket/file object while the caller handles the
+                    # stable NetworkError.
+                    with contextlib.suppress(Exception):
+                        exc.close()
             except URLPolicyError as exc:
                 raise NetworkError(exc.reason_code, "URL policy rejected the request", retryable=False) from exc
             except ResponseTooLarge:
@@ -140,6 +201,35 @@ class BoundedHTTPClient:
                     raise NetworkError("source_deadline_exceeded", "source deadline exceeded") from exc
                 raise NetworkError("network_error", type(exc).__name__) from exc
         raise NetworkError("redirect_limit", "redirect limit exceeded")
+
+    def _open_pinned(self, target: ValidatedURL, address: str, remaining: float) -> Any:
+        parts = urlsplit(target.normalized_url)
+        path = parts.path or "/"
+        if parts.query:
+            path += "?" + parts.query
+        timeout = min(float(self.limits.socket_timeout_seconds), max(0.1, remaining))
+        connection_cls = _PinnedHTTPSConnection if target.scheme == "https" else _PinnedHTTPConnection
+        connection = connection_cls(target.hostname, target.port, address, timeout)
+        try:
+            host_header = target.hostname
+            default_port = (target.scheme == "https" and target.port == 443) or (target.scheme == "http" and target.port == 80)
+            if not default_port:
+                host_header = f"{host_header}:{target.port}"
+            connection.request(
+                "GET",
+                path,
+                headers={
+                    "Host": host_header,
+                    "User-Agent": self.user_agent,
+                    "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, application/json, */*",
+                    "Accept-Encoding": "identity",
+                    "Connection": "close",
+                },
+            )
+            return connection.getresponse()
+        except BaseException:
+            connection.close()
+            raise
 
     def _redirect_target(self, current: ValidatedURL, location: str) -> ValidatedURL:
         if not isinstance(location, str) or not location or len(location) > self.limits.url_chars:

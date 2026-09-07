@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "branches": [
+    {"file": "meco_news/app.py", "line": 1008, "description": "in-flight failure remains operator attention", "tests": ["R01-ack-commit-failure"]},
+    {"file": "meco_news/app.py", "line": 1090, "description": "scheduler consumes terminal outcome", "tests": ["R20-scheduler-outcome"]},
+    {"file": "meco_news/storage.py", "line": 1159, "description": "same-transaction lease authority", "tests": ["R07-owner-fence"]},
+    {"file": "meco_news/storage.py", "line": 1200, "description": "orphan in-flight recovery", "tests": ["R01-orphan-recovery"]},
+    {"file": "meco_news/storage.py", "line": 1790, "description": "retry budget fail-closed", "tests": ["R06-retry-budget"]},
+    {"file": "meco_news/network.py", "line": 171, "description": "validated address pinned before request", "tests": ["F016-pinned-egress"]},
+    {"file": "meco_news/telegram.py", "line": 183, "description": "invalid success envelope is ambiguous", "tests": ["R08-telegram-envelope"]},
+    {"file": "meco_news/collectors.py", "line": 825, "description": "partial worker frame is bounded", "tests": ["R19-ipc-bound"]}
+  ]
+}

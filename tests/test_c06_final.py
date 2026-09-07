@@ -41,8 +41,8 @@ class TestFinal(unittest.TestCase):
             p = Path(d) / "db.db"
             with StateStore(p) as s:
                 # Test all transitions
-                d1 = s.create_delivery("2026-08-29", config_hash="h")
                 s.acquire_lease("delivery", "owner", 180)
+                d1 = s.create_delivery("2026-08-29", config_hash="h", owner_id="owner")
                 s.prepare_delivery(d1.delivery_id, [], ["<b>hi</b>"], owner_id="owner")
                 # Test due_chunks with different states
                 chunks = s.due_chunks(d1.delivery_id)
@@ -54,14 +54,14 @@ class TestFinal(unittest.TestCase):
                 s.finish_chunk(chunk.chunk_id, "accepted", run_id="r", owner_id="owner", telegram_message_id="123")
                 self.assertEqual(s.delivery(d1.delivery_id).state, "completed_empty")
                 # Test failed_terminal
-                d2 = s.create_delivery("2026-08-30", config_hash="h")
+                d2 = s.create_delivery("2026-08-30", config_hash="h", owner_id="owner")
                 s.prepare_delivery(d2.delivery_id, [], ["<b>hi2</b>"], owner_id="owner")
                 chunk2 = s.due_chunks(d2.delivery_id)[0]
                 s.begin_chunk_attempt(chunk2.chunk_id, run_id="r", owner_id="owner")
                 s.finish_chunk(chunk2.chunk_id, "rejected_terminal", run_id="r", owner_id="owner", error_text="fail")
                 self.assertEqual(s.delivery(d2.delivery_id).state, "failed_terminal")
                 # Test retry_wait
-                d3 = s.create_delivery("2026-08-31", config_hash="h")
+                d3 = s.create_delivery("2026-08-31", config_hash="h", owner_id="owner")
                 s.prepare_delivery(d3.delivery_id, [], ["<b>hi3</b>"], owner_id="owner")
                 chunk3 = s.due_chunks(d3.delivery_id)[0]
                 s.begin_chunk_attempt(chunk3.chunk_id, run_id="r", owner_id="owner")

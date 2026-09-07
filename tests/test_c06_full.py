@@ -12,17 +12,17 @@ from datetime import datetime, UTC
 class TestAppFull(unittest.TestCase):
     def test_app_main_paths(self):
         from meco_news.app import main
+        frozen_input = str(Path(__file__).parent / "fixtures" / "frozen-empty-v1.json")
 
-        # config-show
-        self.assertEqual(main(["--config-show", "--json"]), 0)
-        # preflight
-        self.assertIn(main(["--preflight", "--json"]), (0, 3, 4, 5, 6, 7))
-        # status
-        self.assertEqual(main(["--status", "--json"]), 0)
-        # healthcheck
-        self.assertEqual(main(["--healthcheck", "--json"]), 1)
+        with tempfile.TemporaryDirectory() as report_dir, patch.dict("os.environ", {"STATE_DB": str(Path(report_dir) / "state.db")}):
+            # Report modes use an isolated missing database so the test does
+            # not depend on an ignored developer state file.
+            self.assertEqual(main(["--config-show", "--json"]), 0)
+            self.assertIn(main(["--preflight", "--json"]), (0, 3, 4, 5, 6, 7))
+            self.assertEqual(main(["--status", "--json"]), 0)
+            self.assertEqual(main(["--healthcheck", "--json"]), 1)
         # dry-run with top-candidates
-        self.assertEqual(main(["--dry-run", "--top-candidates", "2", "--config", "config/watchlist.json"]), 0)
+        self.assertEqual(main(["--dry-run", "--frozen-input", frozen_input, "--top-candidates", "2", "--config", "config/watchlist.json"]), 0)
         # backup/restore
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "bak"
@@ -32,7 +32,9 @@ class TestAppFull(unittest.TestCase):
 
             s = Path(d) / "state.db"
             with StateStore(s) as st:
-                st.create_delivery("2026-08-26", config_hash="h")
+                st.acquire_lease("delivery", "fixture", 180)
+                st.create_delivery("2026-08-26", config_hash="h", owner_id="fixture")
+                st.release_lease("delivery", "fixture")
             with patch.dict("os.environ", {"STATE_DB": str(s)}):
                 self.assertEqual(main(["--backup", str(p)]), 0)
 
@@ -101,8 +103,8 @@ class TestAppFull(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "db.db"
             with StateStore(p) as s:
-                d1 = s.create_delivery("2026-08-27", config_hash="h")
                 s.acquire_lease("delivery", "o1", 180)
+                d1 = s.create_delivery("2026-08-27", config_hash="h", owner_id="o1")
                 s.prepare_delivery(d1.delivery_id, [], ["<b>hi</b>"], owner_id="o1")
                 self.assertEqual(s.delivery(d1.delivery_id).state, "prepared_empty")
                 s.due_chunks(d1.delivery_id)
