@@ -13,8 +13,8 @@
   },
   "corrupt_database_status_cli": {
     "actual_file_exists": true,
-    "exit_code": 0,
-    "reported_state": "missing"
+    "exit_code": 1,
+    "reported_state": "corrupt"
   },
   "destination_revert_still_blocked": {
     "changed": "needs_attention",

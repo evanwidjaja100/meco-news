@@ -25,6 +25,7 @@ from . import __version__
 from .backup import create_backup, restore_backup
 from .collectors import CollectionResult, SourceResult, collect_all
 from .config import AppConfig, ConfigurationError, load_config, load_dotenv
+from .inspection import inspect_state
 from .observability import AttemptLifecycle, configure_logging, emit_event
 from .preflight import healthcheck, looks_placeholder, run_preflight
 from .ranking import deduplicate, filter_fresh, rank_item, select_digest
@@ -1456,13 +1457,49 @@ def _validate_options(parser: argparse.ArgumentParser, args: argparse.Namespace)
 def _state_status(path: str | Path, config: AppConfig | None = None) -> dict[str, Any]:
     reader = _history_reader(path)
     if reader is None:
-        report: dict[str, Any] = {"schema_version": 0, "application_version": "", "state": "missing"}
+        # F11: absence and damage need different states. A missing file is
+        # initial setup; an existing file no reader can open is corrupt,
+        # malformed, or incompatible. Reuse the inspection classifications
+        # instead of collapsing every failure into "missing".
+        try:
+            inspected = inspect_state(path)
+        except Exception:
+            inspected = None
+        if inspected is None:
+            report: dict[str, Any] = {
+                "schema_version": 0,
+                "application_version": "",
+                "state": "unreadable",
+                "integrity": "unknown",
+                "detail": "state inspection failed",
+            }
+        elif inspected.classification == "missing":
+            report = {"schema_version": 0, "application_version": "", "state": "missing"}
+        elif inspected.classification == "compatible":
+            # Readable schema the live reader still cannot open: truthfully
+            # unreadable, never missing.
+            report = {
+                "schema_version": inspected.schema_version,
+                "application_version": __version__,
+                "state": "unreadable",
+                "integrity": inspected.integrity,
+                "detail": inspected.detail,
+            }
+        else:
+            report = {
+                "schema_version": inspected.schema_version,
+                "application_version": __version__,
+                "state": inspected.classification,
+                "integrity": inspected.integrity,
+                "detail": inspected.detail,
+            }
         if config is not None:
             report["next_due_at"] = _next_delivery(config).isoformat()
         return report
     try:
         try:
             report = reader.status_snapshot()
+            report.setdefault("state", "ok")
             if config is not None:
                 report["next_due_at"] = _next_delivery(config).isoformat()
             return report
@@ -1545,7 +1582,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.status:
         report = _state_status(os.getenv("STATE_DB", "data/meco_news.db"), config)
         print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))
-        return 0
+        # F11: missing is initial setup (success); any damaged state fails.
+        return 0 if report.get("state") in {"ok", "missing"} else 1
     if args.healthcheck:
         healthy, report = healthcheck(config, max_heartbeat_age=max(1, args.max_heartbeat_age))
         if args.alert_file:

@@ -11,6 +11,8 @@ python -m meco_news --status --json
 python -m meco_news --healthcheck --max-heartbeat-age 180 --json
 ```
 
+`--status --json` exits 0 when state is `ok` (healthy) or `missing` (initial setup), and 1 when the database is corrupt, malformed, incompatible, or unreadable.
+
 Alert policy:
 
 - critical: no successful run for 26 hours (including a missed first window with zero history), state corruption/migration failure/incompatible schema, all sources failed after retries, or chunk retries exhausted past the configured budget;
