@@ -1,4 +1,12 @@
-"""Enforce separate statement/branch coverage and critical branch evidence."""
+"""Enforce separate statement/branch coverage and critical branch evidence.
+
+A critical-branch entry is evidence only when its location is observed in
+the measured coverage: the registered line must be a measured executable
+line that originates a measured arc, and any explicitly claimed arc must
+occur in the measured arc set. Entries naming unmeasured lines, arcs, or
+files are reported as unknown, and an empty register never passes, so a
+stale or invented register fails closed instead of passing silently.
+"""
 
 from __future__ import annotations
 
@@ -39,24 +47,43 @@ def evaluate(
         filename = _normalise_file(str(entry.get("file", "")))
         line = entry.get("line")
         file_data = files.get(filename)
-        if not file_data or not isinstance(line, int):
+        if not isinstance(file_data, dict) or not isinstance(line, int):
             unknown.append({"entry": entry, "reason": "coverage_location_not_found"})
             continue
+        executed_lines = {int(value) for value in file_data.get("executed_lines", []) if isinstance(value, int)}
         missing_lines = {int(value) for value in file_data.get("missing_lines", []) if isinstance(value, int)}
+        executed_branches = {
+            (int(pair[0]), int(pair[1]))
+            for pair in file_data.get("executed_branches", [])
+            if isinstance(pair, list) and len(pair) == 2 and all(isinstance(value, int) for value in pair)
+        }
         missing_branches = {
             (int(pair[0]), int(pair[1]))
             for pair in file_data.get("missing_branches", [])
             if isinstance(pair, list) and len(pair) == 2 and all(isinstance(value, int) for value in pair)
         }
+        if line not in executed_lines and line not in missing_lines:
+            unknown.append({"entry": entry, "reason": "line_not_measured"})
+            continue
+        measured_arcs = executed_branches | missing_branches
+        if not any(origin == line for origin, _ in measured_arcs):
+            unknown.append({"entry": entry, "reason": "line_not_a_branch"})
+            continue
         branch = entry.get("branch")
-        if isinstance(branch, list) and len(branch) == 2 and all(isinstance(value, int) for value in branch):
-            failed = (int(branch[0]), int(branch[1])) in missing_branches
-        else:
+        if branch is None:
             # A registered decision line is satisfied only when its line and
             # every measured outgoing branch are covered.
-            failed = line in missing_lines or any(origin == line for origin, _ in missing_branches)
-        if failed:
+            if line in missing_lines or any(origin == line for origin, _ in missing_branches):
+                missing.append({"file": filename, "line": line, "branch": branch, "tests": entry.get("tests", [])})
+            continue
+        if not (isinstance(branch, list) and len(branch) == 2 and all(isinstance(value, int) for value in branch)):
+            unknown.append({"entry": entry, "reason": "branch_malformed"})
+            continue
+        claimed = (int(branch[0]), int(branch[1]))
+        if claimed in missing_branches:
             missing.append({"file": filename, "line": line, "branch": branch, "tests": entry.get("tests", [])})
+        elif claimed not in executed_branches:
+            unknown.append({"entry": entry, "reason": "branch_not_measured"})
     result = {
         "statement": {
             "covered": covered_statements,
@@ -76,7 +103,8 @@ def evaluate(
             "registered": len(entries) if isinstance(entries, list) else 0,
             "missing": missing,
             "unknown": unknown,
-            "passed": not missing and not unknown,
+            "empty_register": not isinstance(entries, list) or len(entries) == 0,
+            "passed": isinstance(entries, list) and len(entries) > 0 and not missing and not unknown,
         },
     }
     result["passed"] = bool(result["statement"]["passed"] and result["branch"]["passed"] and result["critical_branches"]["passed"])

@@ -490,6 +490,52 @@ class DaemonAndCliBoundaryTests(unittest.TestCase):
         ):
             self.assertEqual(app.run_daemon(config), 1)
 
+    def test_daemon_success_outcome_is_not_consumed_as_blocked(self) -> None:
+        config = _config()
+
+        class FakeLease:
+            acquired = True
+            owner_id = "daemon-owner"
+
+        class FakeStore:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def acquire_lease(self, *_args: object, **_kwargs: object) -> FakeLease:
+                return FakeLease()
+
+            def heartbeat_lease(self, *_args: object, **_kwargs: object) -> None:
+                return None
+
+            def release_lease(self, *_args: object, **_kwargs: object) -> bool:
+                return True
+
+        class DeadThread:
+            def __init__(self, *_args: object, **_kwargs: object) -> None:
+                pass
+
+            def start(self) -> None:
+                return None
+
+            def is_alive(self) -> bool:
+                return False
+
+            def join(self, *_args: object, **_kwargs: object) -> None:
+                return None
+
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.dict(os.environ, _live_env(Path(directory) / "daemon.db"), clear=False),
+            patch.object(app, "StateStore", return_value=FakeStore()),
+            patch.object(app.threading, "Thread", DeadThread),
+            patch.object(app, "_is_due", return_value=True),
+            patch.object(app, "run_once", return_value=app.RunOutcome(0, "completed")),
+        ):
+            self.assertEqual(app.run_daemon(config), 1)
+
     def test_daemon_preflight_heartbeat_and_reload_helpers(self) -> None:
         config = _config()
         with patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "replace_with_token", "TELEGRAM_CHAT_ID": "1"}, clear=False):

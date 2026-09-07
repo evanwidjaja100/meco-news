@@ -26,14 +26,30 @@
     "send_calls": 0
   },
   "fictional_critical_branch_passes": {
+    "empty_register": false,
     "missing": [],
-    "passed": true,
+    "passed": false,
     "registered": 1,
-    "unknown": []
+    "unknown": [
+      {
+        "entry": {
+          "branch": [
+            999999,
+            1000000
+          ],
+          "file": "meco_news/app.py",
+          "line": 999999
+        },
+        "reason": "line_not_measured"
+      }
+    ]
   },
   "fictitious_signature_passes": {
-    "failures": [],
-    "passed": true,
+    "failures": [
+      "artifacts:empty",
+      "signature:unverifiable"
+    ],
+    "passed": false,
     "signature": {
       "state": "signed"
     }
