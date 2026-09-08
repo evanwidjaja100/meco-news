@@ -22,15 +22,16 @@ import json
 import os
 import sqlite3
 import secrets
+import sys
 import tempfile
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 
-if os.name == "nt":
-    import msvcrt
+if sys.platform == "win32":
+    import msvcrt as _msvcrt
 else:  # pragma: no cover - exercised on Linux CI
-    msvcrt = None  # type: ignore[assignment]
+    _msvcrt = None
 
 from .inspection import InspectionResult, WalProbeResult, inspect_state, probe_wal_capability
 
@@ -51,15 +52,15 @@ class _GuardFile:
     def release(self) -> None:
         if self.handle is None:
             return
-        if os.name == "nt":
+        if sys.platform == "win32":
             if self.overlapped is not None:
                 ctypes.windll.kernel32.UnlockFileEx(
-                    msvcrt.get_osfhandle(self.handle.fileno()), 0, 1, 0, ctypes.byref(self.overlapped)
+                    _msvcrt.get_osfhandle(self.handle.fileno()), 0, 1, 0, ctypes.byref(self.overlapped)
                 )
         else:
             import fcntl
 
-            fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)  # type: ignore[attr-defined]
+            fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
         self.handle.close()
         self.handle = None
 
@@ -77,7 +78,7 @@ def _acquire_guard_file(db_path: Path, *, exclusive: bool) -> _GuardFile:
         handle.write(b"0")
         handle.flush()
     try:
-        if os.name == "nt":
+        if sys.platform == "win32":
             class _Overlapped(ctypes.Structure):
                 _fields_ = [
                     ("Internal", ctypes.c_void_p),
@@ -90,15 +91,15 @@ def _acquire_guard_file(db_path: Path, *, exclusive: bool) -> _GuardFile:
             overlapped = _Overlapped()
             flags = 0x00000002 if exclusive else 0
             ok = ctypes.windll.kernel32.LockFileEx(
-                msvcrt.get_osfhandle(handle.fileno()), flags | 0x00000001, 0, 1, 0, ctypes.byref(overlapped)
+                _msvcrt.get_osfhandle(handle.fileno()), flags | 0x00000001, 0, 1, 0, ctypes.byref(overlapped)
             )
             if not ok:
                 raise OSError(32, "guard lock is busy")
             return _GuardFile(path, handle, exclusive=exclusive, overlapped=overlapped)
         import fcntl
 
-        operation = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH  # type: ignore[attr-defined]
-        fcntl.flock(handle.fileno(), operation | fcntl.LOCK_NB)  # type: ignore[attr-defined]
+        operation = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+        fcntl.flock(handle.fileno(), operation | fcntl.LOCK_NB)
         return _GuardFile(path, handle, exclusive=exclusive)
     except BaseException:
         handle.close()
@@ -247,7 +248,7 @@ def _process_identity(pid: int) -> str:
     """Return a best-effort process-creation identity for stale-holder checks."""
     if pid <= 0:
         return ""
-    if os.name == "nt":
+    if sys.platform == "win32":
         handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
         if not handle:
             return ""
@@ -285,7 +286,7 @@ def _pid_alive(pid: object, identity: object = "") -> bool:
         return False
     if value <= 0:
         return False
-    if os.name == "nt":
+    if sys.platform == "win32":
         handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, value)
         if not handle:
             return False
