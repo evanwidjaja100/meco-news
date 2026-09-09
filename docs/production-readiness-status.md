@@ -7,6 +7,14 @@
 
 This is an implementation checkpoint, not a closure certificate. Code, tests, and local tool output are implementer evidence. A finding remains open until its required independent review, exact-candidate evidence, target checks, and approval are recorded in the controlling plan.
 
+## 2026-09-09 delta (main @ b6d8a55)
+
+- Local suite re-verified on this checkout: 602 tests green (`skipped=1`); Ruff and strict mypy clean. The only change since that run is CHANGELOG-only, and the full CI matrix re-ran green on it.
+- PR #13 merged: deterministic CycloneDX 1.5 SBOM generator from the hash-locked build/dev inputs; provenance `--require-sbom` attach/verify that fails closed; the signature gate is unchanged and still fail-closed with no trust root.
+- PR #14 merged: CHANGELOG records the PR #12/PR #13 hardening; the release decision is unchanged.
+- Remote CI is green on protected `main` (quality, package, container, coverage-and-critical-branches, unit ubuntu+windows py3.12-3.14) with a GitGuardian pass.
+- Unchanged blockers: signature trust-root decision, exact-candidate Docker/target evidence, target-host reports, human approvals, shadow/canary/rollback rehearsal, and 72-hour observation. Decision stays **NO-GO**.
+
 ## Verified local facts
 
 - 509 tests collected; the fresh full `pytest` suite passed.
