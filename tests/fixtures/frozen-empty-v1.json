@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "collected_at": "2026-08-24T00:00:00+00:00",
+  "items": [],
+  "source_results": [
+    {
+      "source_id": "fixture",
+      "source_name": "Fixture source",
+      "outcome": "succeeded",
+      "duration_ms": 0,
+      "bytes_read": 0,
+      "accepted_count": 0,
+      "quarantined_count": 0,
+      "reason_code": "",
+      "error_class": "",
+      "error": ""
+    }
+  ],
+  "issues": [],
+  "duration_ms": 0,
+  "history": []
+}

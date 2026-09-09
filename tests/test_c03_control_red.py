@@ -33,6 +33,7 @@ class TestF002OrphanCLIAndDryRunSideEffects(unittest.TestCase):
 
         item = NewsItem(title="Gas infra fresh", url="https://example.com/a", source="S", published_at=datetime.now(UTC))
         fake_collection = CollectionResult([item], [SourceResult("fake", "fake", "succeeded", items=[item])], datetime.now(UTC), 1)
+        frozen_input = str(Path(__file__).parent / "fixtures" / "frozen-empty-v1.json")
 
         with tempfile.TemporaryDirectory() as d:
             state = Path(d) / "state.db"
@@ -42,7 +43,7 @@ class TestF002OrphanCLIAndDryRunSideEffects(unittest.TestCase):
                 patch("meco_news.app.collect_all", return_value=fake_collection),
                 patch("meco_news.app.TelegramClient") as mock_tg,
             ):
-                code = main(["--dry-run", "--config", "config/watchlist.json"])
+                code = main(["--dry-run", "--frozen-input", frozen_input, "--config", "config/watchlist.json"])
                 self.assertEqual(code, 0)
                 # DRY-RUN MUST be offline: no Telegram construction
                 mock_tg.assert_not_called()
@@ -92,7 +93,7 @@ class TestF004HealthFalseGreen(unittest.TestCase):
             path = Path(d) / "state.db"
             with StateStore(path) as store:
                 store.acquire_lease("delivery", "owner", 180)
-                delv = store.create_delivery("2026-08-25", config_hash="h")
+                delv = store.create_delivery("2026-08-25", config_hash="h", owner_id="owner")
                 # Prepare with one chunk so we can transition to ambiguous
                 from meco_news.models import NewsItem
                 from datetime import datetime, UTC
@@ -124,7 +125,7 @@ class TestF004HealthFalseGreen(unittest.TestCase):
             path = Path(d) / "state.db"
             with StateStore(path) as store:
                 store.acquire_lease("delivery", "owner", 180)
-                d1 = store.create_delivery("2026-08-24", config_hash="h")
+                d1 = store.create_delivery("2026-08-24", config_hash="h", owner_id="owner")
                 store.prepare_delivery(d1.delivery_id, [], ["<b>a</b>"], owner_id="owner")
                 # Complete it
                 s = store
@@ -133,7 +134,7 @@ class TestF004HealthFalseGreen(unittest.TestCase):
                     "UPDATE deliveries SET state='completed', completed_at=datetime('now') WHERE delivery_id=?", (d1.delivery_id,)
                 )
                 s.connection.commit()
-                _d2 = store.create_delivery("2026-08-25", config_hash="h")
+                _d2 = store.create_delivery("2026-08-25", config_hash="h", owner_id="owner")
                 snap = store.status_snapshot()
                 # Must expose both latest terminal vs active — currently status_snapshot only exposes active_delivery
                 if snap.get("active_delivery") and snap["active_delivery"]["delivery_date"] == "2026-08-24":
@@ -256,13 +257,14 @@ class TestF002CompanionOrphansAndMatrix(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory) / "state.db"
             log = Path(directory) / "logs" / "meco.jsonl"
+            frozen_input = str(Path(__file__).parent / "fixtures" / "frozen-empty-v1.json")
             with (
                 patch.dict(os.environ, {"STATE_DB": str(state), "LOG_FILE": str(log)}, clear=False),
                 patch.object(app_mod, "collect_all", side_effect=AssertionError("dry-run must not collect")),
                 patch.object(app_mod, "TelegramClient") as mock_tg,
             ):
                 before_state = snapshot(Path(directory))
-                code = main(["--dry-run", "--config", "config/watchlist.json"])
+                code = main(["--dry-run", "--frozen-input", frozen_input, "--config", "config/watchlist.json"])
                 after_state = snapshot(Path(directory))
                 self.assertEqual(code, 0)
                 mock_tg.assert_not_called()

@@ -21,7 +21,7 @@ class CoverageHelpers(unittest.TestCase):
             ["--ignore-history"],
             ["--force", "--dry-run"],
             ["--online"],
-            ["--json"],
+            ["--json", "--daemon"],
             ["--resolve-chunk", "1"],
             ["--max-heartbeat-age", "0"],
             ["--top-candidates", "-1"],
@@ -103,8 +103,9 @@ class CoverageHelpers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "db.db"
             with StateStore(p) as s:
-                s.create_delivery("2026-08-26", config_hash="h")
                 s.acquire_lease("delivery", "o", 180)
+                s.create_delivery("2026-08-26", config_hash="h", owner_id="o")
+                s.release_lease("delivery", "o")
             art = create_backup(p, Path(d) / "bak")
             restore_backup(art.database, Path(d) / "restored.db")
             self.assertTrue((Path(d) / "restored.db").exists())

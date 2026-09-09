@@ -43,6 +43,8 @@ class NetworkCorpus(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join(timeout=5)
 
     def test_fetch_success(self):
         from meco_news.network import BoundedHTTPClient
@@ -105,7 +107,7 @@ class NetworkCorpus(unittest.TestCase):
                         self.send_response(200)
                         self.send_header("Content-Type", "application/json")
                         self.end_headers()
-                        self.wfile.write(js.dumps({"ok": True, "result": {"message_id": 123}}).encode())
+                        self.wfile.write(js.dumps({"ok": True, "result": {"message_id": 123, "chat": {"id": 123}}}).encode())
                 else:
                     self.send_response(404)
                     self.end_headers()
@@ -118,9 +120,9 @@ class NetworkCorpus(unittest.TestCase):
         t = threading.Thread(target=s.serve_forever, daemon=True)
         t.start()
         try:
-            client = TelegramClient("123456:fake-token-12345678901234567890", "123", timeout=5)
+            client = TelegramClient("synthetic-fake-token-12345678901234567890", "123", timeout=5)
             # Patch base_url to point to fake server
-            client.base_url = f"http://127.0.0.1:{port}/bot123456:fake-token-12345678901234567890"
+            client.base_url = f"http://127.0.0.1:{port}/botsynthetic-fake-token-12345678901234567890"
             # getMe
             me = client.get_me()
             self.assertEqual(me["username"], "testbot")
@@ -137,6 +139,8 @@ class NetworkCorpus(unittest.TestCase):
             self.assertEqual(cm.exception.reason_code, "telegram_ambiguous")
         finally:
             s.shutdown()
+            s.server_close()
+            t.join(timeout=5)
 
     def test_url_policy(self):
         from meco_news.urls import validate_url, URLPolicyError

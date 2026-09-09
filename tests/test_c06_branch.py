@@ -22,7 +22,7 @@ class TestBranch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "state.db"
             with patch.dict(
-                "os.environ", {"STATE_DB": str(p), "TELEGRAM_BOT_TOKEN": "123456:real-token-12345678901234567890", "TELEGRAM_CHAT_ID": "1"}
+                "os.environ", {"STATE_DB": str(p), "TELEGRAM_BOT_TOKEN": "synthetic-real-token-12345678901234567890", "TELEGRAM_CHAT_ID": "1"}
             ):
                 # Test with need recovery
                 self.assertIn(main(["--status", "--json"]), (0,))
@@ -32,7 +32,9 @@ class TestBranch(unittest.TestCase):
                 from meco_news.storage import StateStore
 
                 with StateStore(p) as s:
-                    s.create_delivery("2026-09-10", config_hash="h")
+                    s.acquire_lease("delivery", "fixture", 180)
+                    s.create_delivery("2026-09-10", config_hash="h", owner_id="fixture")
+                    s.release_lease("delivery", "fixture")
                 self.assertEqual(main(["--backup", str(bak)]), 0)
 
     def test_collectors_branches(self):
@@ -60,8 +62,8 @@ class TestBranch(unittest.TestCase):
             p = Path(d) / "db.db"
             with StateStore(p) as s:
                 # Test invalid transition
-                d1 = s.create_delivery("2026-09-11", config_hash="h")
                 s.acquire_lease("delivery", "o", 180)
+                d1 = s.create_delivery("2026-09-11", config_hash="h", owner_id="o")
                 s.prepare_delivery(d1.delivery_id, [], ["<b>hi</b>"], owner_id="o")
                 # Try to prepare again — should fail
                 with self.assertRaises(InvalidTransition):

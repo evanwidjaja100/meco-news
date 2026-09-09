@@ -94,8 +94,12 @@ def run_preflight(config: AppConfig, *, online: bool = False, state_path: str | 
         total_bytes = int(usage.total)
     except OSError:
         free_bytes = 0
-    state_ok = bool(disk_ok and _disk_sufficient(free_bytes, total_bytes))
     wal_probe = inspection.probe_wal_capability(parent)
+    # WAL is part of the authoritative writer contract, not merely an
+    # informational probe.  A writable directory with a non-WAL journal
+    # cannot safely host the service, so it must make the conjunction false
+    # and receive the documented state-filesystem exit code.
+    state_ok = bool(disk_ok and _disk_sufficient(free_bytes, total_bytes) and wal_probe.ok)
     report["checks"]["state_filesystem"] = {
         "ok": state_ok,
         "directory": str(parent),
@@ -245,7 +249,17 @@ def healthcheck(
             status = store.status_snapshot()
     except Exception as exc:
         report["healthy"] = False
-        report["reasons"].append("state_unreadable")
+        inspected = inspection.inspect_state(path)
+        if inspected.classification in {"migration_required", "newer_incompatible", "malformed"}:
+            report["reasons"].append("incompatible_schema")
+            report["schema"] = {
+                "ok": False,
+                "actual": inspected.schema_version,
+                "expected": CURRENT_SCHEMA_VERSION,
+                "classification": inspected.classification,
+            }
+        else:
+            report["reasons"].append("state_unreadable")
         report["error_class"] = type(exc).__name__
         return False, report
     report["status"] = status
@@ -319,6 +333,78 @@ def healthcheck(
     if active.get("state") == "completed_empty":
         # completed_empty is healthy — no action, but explicitly handled for C3.5 test
         pass
+    # F05: abandoned active work must never report healthy. A non-terminal
+    # delivery the scheduler stopped touching is stuck, not waiting: no
+    # future timer revives pre-retry states, and an exhausted retry budget
+    # is one run_once would fail terminal with zero sends. Age is measured
+    # from the last observed activity (delivery start or latest attempt),
+    # so actively retried work with attempts left stays healthy. Every
+    # non-terminal row is evaluated, not just the newest, so old stuck
+    # work cannot hide behind a newer delivery. needs_attention already
+    # fails health above and is excluded to keep one stable reason. A
+    # future-dated activity (broken clock) is unevaluable and skipped: a
+    # broken clock must not flip health on its own.
+    abandoned: dict[str, Any] | None = None
+    try:
+        with StateStore(path, readonly=True) as work_store:
+            work_connection = getattr(work_store, "connection", None)
+            if work_connection is None:
+                # Duck-typed store substitutes expose status snapshots but
+                # no read connection; without activity data there is no
+                # abandonment evidence to report.
+                stuck_rows = []
+            else:
+                stuck_rows = work_connection.execute(
+                    "SELECT d.delivery_id, d.state, d.started_at, MAX(a.started_at) "
+                    "FROM deliveries d LEFT JOIN delivery_attempts a "
+                    "ON a.delivery_id = d.delivery_id "
+                    "WHERE d.state IN ('collecting','prepared','prepared_empty','sending','retry_wait') "
+                    "GROUP BY d.delivery_id ORDER BY d.delivery_id"
+                ).fetchall()
+            for stuck_row in stuck_rows:
+                stuck_id = int(stuck_row[0])
+                stuck_state = str(stuck_row[1])
+                try:
+                    activity = max(
+                        datetime.fromisoformat(str(value)).astimezone(UTC)
+                        for value in (stuck_row[2], stuck_row[3])
+                        if value
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    activity = None
+                if activity is not None and activity > now:
+                    continue
+                if activity is None or (now - activity) > timedelta(hours=26):
+                    abandoned = {
+                        "delivery_id": stuck_id,
+                        "state": stuck_state,
+                        "started_at": str(stuck_row[2] or ""),
+                        "last_activity_at": activity.isoformat() if activity else "",
+                    }
+                    break
+                try:
+                    spent = work_store.retry_budget_exhausted(
+                        stuck_id,
+                        max_attempts=int(getattr(getattr(config, "retry_policy", None), "max_attempts", 4)),
+                        max_elapsed_seconds=int(getattr(getattr(config, "retry_policy", None), "max_elapsed_seconds", 604_800)),
+                        now=now,
+                    )
+                except (StateError, sqlite3.Error, TypeError, ValueError):
+                    spent = True
+                if spent:
+                    abandoned = {
+                        "delivery_id": stuck_id,
+                        "state": stuck_state,
+                        "started_at": str(stuck_row[2] or ""),
+                        "last_activity_at": activity.isoformat() if activity is not None else "",
+                    }
+                    break
+    except (StateError, sqlite3.Error, OSError):
+        abandoned = {"delivery_id": 0, "state": "unknown", "started_at": "", "last_activity_at": ""}
+    if abandoned is not None:
+        report["healthy"] = False
+        report["reasons"].append("abandoned_delivery")
+        report["abandoned_delivery"] = abandoned
     last_success = status.get("last_success_at")
     if last_success:
         try:
@@ -354,12 +440,33 @@ def healthcheck(
             if now_local >= due_today:
                 report["healthy"] = False
                 report["reasons"].append("overdue_delivery")
-    # C3.5: all_sources_failed retry exhaustion is unhealthy (distinct from completed_empty)
+
+    def budget_exhausted(delivery_id: int, *, chunk_id: int | None = None) -> bool:
+        # The initial status probe intentionally closes its read connection
+        # before the remaining health checks.  Reopen a fresh read-only
+        # connection for persisted retry-budget queries instead of reusing a
+        # closed StateStore instance.
+        with StateStore(path, readonly=True) as retry_store:
+            return retry_store.retry_budget_exhausted(
+                delivery_id,
+                chunk_id=chunk_id,
+                max_attempts=int(getattr(getattr(config, "retry_policy", None), "max_attempts", 4)),
+                max_elapsed_seconds=int(getattr(getattr(config, "retry_policy", None), "max_elapsed_seconds", 604_800)),
+                now=now,
+            )
+
+    # C3.5: all-source outage is unhealthy while it is retrying, and becomes
+    # explicitly exhausted once the persisted attempt/elapsed budget is spent.
     if active.get("state") == "retry_wait" and "all_sources_failed" in str(active.get("terminal_error", "")):
-        # Exhausted source retries are unsafe even though no Telegram chunk is
-        # currently ambiguous; they must not look like a healthy idle retry.
         report["healthy"] = False
-        report["reasons"].append("all_sources_failed_retry_exhausted")
+        report["reasons"].append("all_sources_failed")
+        try:
+            source_retry_exhausted = budget_exhausted(int(active["delivery_id"]))
+        except (KeyError, TypeError, ValueError, StateError, sqlite3.Error):
+            source_retry_exhausted = True
+        report.setdefault("retry", {})["collection_exhausted"] = source_retry_exhausted
+        if source_retry_exhausted:
+            report["reasons"].append("all_sources_failed_retry_exhausted")
     # C1.3: a head chunk stuck in retry_wait past the configured retry budget
     # is exhausted, not waiting. Transient retries with attempts left stay
     # healthy so normal backoff does not flap monitoring; delivery-level
@@ -367,7 +474,15 @@ def healthcheck(
     # overdue_delivery instead.
     max_attempts = int(getattr(getattr(config, "retry_policy", None), "max_attempts", 4))
     chunk = status.get("active_chunk") or {}
-    if chunk.get("state") == "retry_wait" and int(chunk.get("attempt_count", 0)) >= max_attempts:
+    chunk_exhausted = False
+    if chunk.get("state") == "retry_wait":
+        chunk_exhausted = int(chunk.get("attempt_count", 0)) >= max_attempts
+        if not chunk_exhausted and active:
+            try:
+                chunk_exhausted = budget_exhausted(int(active["delivery_id"]), chunk_id=int(chunk["chunk_id"]))
+            except (KeyError, TypeError, ValueError, StateError, sqlite3.Error):
+                chunk_exhausted = True
+    if chunk_exhausted:
         report["healthy"] = False
         report["reasons"].append("chunk_retry_exhausted")
         report["retry"] = {

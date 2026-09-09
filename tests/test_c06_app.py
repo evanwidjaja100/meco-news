@@ -21,12 +21,12 @@ class TestAppCollectorsStorage(unittest.TestCase):
 
             p = Path(d) / "state.db"
             with patch.dict(
-                "os.environ", {"STATE_DB": str(p), "TELEGRAM_BOT_TOKEN": "123456:real-token-12345678901234567890", "TELEGRAM_CHAT_ID": "1"}
+                "os.environ", {"STATE_DB": str(p), "TELEGRAM_BOT_TOKEN": "synthetic-real-token-12345678901234567890", "TELEGRAM_CHAT_ID": "1"}
             ):
                 # Create a completed delivery first
                 with StateStore(p) as s:
-                    s.create_delivery("2026-08-26", config_hash="h")
                     s.acquire_lease("delivery", "o", 180)
+                    s.create_delivery("2026-08-26", config_hash="h", owner_id="o")
                     s.prepare_delivery(s.active_delivery("2026-08-26").delivery_id, [], ["<b>hi</b>"], owner_id="o")
                 # Now test --status and --healthcheck
                 self.assertEqual(main(["--status", "--json"]), 0)
@@ -71,7 +71,7 @@ class TestAppCollectorsStorage(unittest.TestCase):
                 # Acquire again
                 self.assertTrue(s.acquire_lease("delivery", "owner2", 180).acquired)
                 # Test due_chunks with retry_wait
-                d1 = s.create_delivery("2026-08-27", config_hash="h")
+                d1 = s.create_delivery("2026-08-27", config_hash="h", owner_id="owner2")
                 s.prepare_delivery(d1.delivery_id, [], ["<b>hi</b>"], owner_id="owner2")
                 # Set retry_wait
                 s.connection.execute(
@@ -135,6 +135,8 @@ class TestAppCollectorsStorage(unittest.TestCase):
             from meco_news.storage import StateStore
 
             with StateStore(p) as s:
-                s.create_delivery("2026-08-28", config_hash="h")
+                s.acquire_lease("delivery", "fixture", 180)
+                s.create_delivery("2026-08-28", config_hash="h", owner_id="fixture")
+                s.release_lease("delivery", "fixture")
             art = create_backup(p, Path(d) / "bak2")
             self.assertTrue(art.database.exists())

@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "branches": [
+    {
+      "file": "meco_news/app.py",
+      "line": 1009,
+      "description": "in-flight failure remains operator attention",
+      "tests": [
+        "test_live_outcome_matrix_for_existing_prepared_delivery"
+      ]
+    },
+    {
+      "file": "meco_news/app.py",
+      "line": 1266,
+      "description": "scheduler consumes terminal outcome",
+      "tests": [
+        "test_daemon_consumes_typed_terminal_outcome_and_rejects_lost_heartbeat",
+        "test_daemon_success_outcome_is_not_consumed_as_blocked"
+      ]
+    },
+    {
+      "file": "meco_news/storage.py",
+      "line": 1138,
+      "description": "same-transaction lease authority",
+      "tests": [
+        "test_storage_lease_and_recovery"
+      ]
+    },
+    {
+      "file": "meco_news/storage.py",
+      "line": 1198,
+      "description": "orphan in-flight recovery",
+      "tests": [
+        "test_recovery_and_target_idempotence_edges",
+        "test_recovery_source_results_target_and_status"
+      ]
+    },
+    {
+      "file": "meco_news/storage.py",
+      "line": 1788,
+      "description": "retry budget fail-closed",
+      "tests": [
+        "test_collection_retry_and_retry_budget_paths"
+      ]
+    },
+    {
+      "file": "meco_news/urls.py",
+      "line": 229,
+      "description": "forbidden resolved address rejected before request",
+      "tests": [
+        "test_private_still_blocked",
+        "test_multicast_rejected"
+      ]
+    },
+    {
+      "file": "meco_news/telegram.py",
+      "line": 204,
+      "description": "invalid success envelope is ambiguous",
+      "tests": [
+        "test_telegram_call_classifies_envelopes_and_transport"
+      ]
+    },
+    {
+      "file": "meco_news/collectors.py",
+      "line": 625,
+      "description": "partial worker frame is bounded",
+      "tests": [
+        "test_worker_entry_and_frame_failure_boundaries"
+      ]
+    }
+  ]
+}

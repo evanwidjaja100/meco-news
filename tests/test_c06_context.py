@@ -1,24 +1,144 @@
-"""C6.4 actual context/layer harness — F-024."""
+"""C6.4 actual context/layer harness — F-024.
 
+The verifier is intentionally exercised against a disposable synthetic
+checkout.  In particular, these tests never place canaries in the repository
+that contains the test runner.
+"""
+
+import json
+import os
+import shutil
 import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 
+def _run_verifier(root, *args):
+    """Run the verifier with the Docker probe disabled so results are hermetic.
+
+    CI runners may provide a live Docker daemon while developer machines do
+    not.  MECO_DISABLE_DOCKER_PROBE forces the docker-unavailable branch on
+    every host; PATH scrubbing alone cannot hide executables on Windows, so
+    the knob (not the scrub) is the authoritative mechanism here.
+    """
+    with tempfile.TemporaryDirectory(prefix="meco-no-docker-") as bindir:
+        env = {key: value for key, value in os.environ.items() if key.lower() != "path"}
+        env["PATH"] = bindir
+        env["MECO_DISABLE_DOCKER_PROBE"] = "1"
+        return subprocess.run(
+            [sys.executable, "scripts/verify-build-context.py", "--root", str(root), *args],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+
+def _docker_available():
+    # The disposable probe builds a Linux ``FROM scratch`` image, which a
+    # Windows-containers daemon rejects outright.  Such hosts skip the live
+    # probe like daemon-less hosts instead of failing the positive control.
+    if shutil.which("docker") is None:
+        return False
+    try:
+        probe = subprocess.run(
+            ["docker", "version", "--format", "{{.Server.Version}}"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        ostype = subprocess.run(
+            ["docker", "version", "--format", "{{.Server.OSType}}"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if probe.returncode != 0 or ostype.returncode != 0:
+        return False
+    return ostype.stdout.strip().casefold() == "linux"
+
+
 class TestContext(unittest.TestCase):
+    @staticmethod
+    def _synthetic_checkout(root: Path) -> None:
+        (root / ".dockerignore").write_text(
+            ".env\ndata/\nlogs/\n.git\n__pycache__/\n.pytest_cache/\ntests/\nresearch/\n",
+            encoding="utf-8",
+        )
+        (root / "Dockerfile").write_text(
+            "FROM scratch\nCOPY config ./config\nCOPY meco_news ./meco_news\n",
+            encoding="utf-8",
+        )
+
     def test_verify_build_context_passes(self):
-        result = subprocess.run(["python", "scripts/verify-build-context.py"], capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("build-context sentinel passed", result.stdout)
+        with tempfile.TemporaryDirectory(prefix="meco-context-test-") as directory:
+            root = Path(directory)
+            self._synthetic_checkout(root)
+            sentinel = root / ".env"
+            sentinel.write_text("preserve-me", encoding="utf-8")
+            result = _run_verifier(root, "--json")
+            self.assertEqual(result.returncode, 0, msg=result.stderr[-2000:])
+            report = json.loads(result.stdout)
+            self.assertIn(report["status"], {"passed", "blocked"})
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve-me")
 
     def test_verify_with_context(self):
-        import os
+        with tempfile.TemporaryDirectory(prefix="meco-context-test-") as directory:
+            root = Path(directory)
+            self._synthetic_checkout(root)
+            preserved = {
+                ".env": "synthetic-env",
+                "data/state.db": "synthetic-state",
+                "logs/run.jsonl": "synthetic-log",
+            }
+            for relative, value in preserved.items():
+                target = root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(value, encoding="utf-8")
+            result = _run_verifier(root, "--require-docker", "--json")
+            report = json.loads(result.stdout)
+            expected_code = 0 if report.get("status") == "passed" else 2
+            self.assertEqual(result.returncode, expected_code)
+            self.assertIn(report["status"], {"passed", "blocked"})
+            for relative, value in preserved.items():
+                self.assertEqual((root / relative).read_text(encoding="utf-8"), value)
 
-        env = dict(os.environ)
-        env["VERIFY_CONTEXT"] = "1"
-        result = subprocess.run(["python", "scripts/verify-build-context.py"], capture_output=True, text=True, env=env)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("build-context sentinel passed", result.stdout)
+    def test_positive_control_is_not_silently_accepted(self):
+        # The positive canary is a deliberately included file.  When Docker is
+        # unavailable the report is blocked; a text-only fallback is never a
+        # false pass.  Docker is hidden here so this assertion is hermetic on
+        # every host; the live-Docker path has its own test below.
+        with tempfile.TemporaryDirectory(prefix="meco-context-test-") as directory:
+            root = Path(directory)
+            self._synthetic_checkout(root)
+            result = _run_verifier(root, "--json")
+            report = json.loads(result.stdout)
+            self.assertEqual(report["status"], "blocked", msg=json.dumps(report)[:2000])
+            self.assertEqual(report["actual"]["status"], "blocked")
+
+    def test_positive_control_detected_with_live_docker(self):
+        # Exercises the real disposable Docker probe where a daemon exists.
+        # The failure message carries the verifier report so CI logs show the
+        # exact probe step that failed.
+        if not _docker_available():
+            self.skipTest("live Docker daemon is unavailable")
+        with tempfile.TemporaryDirectory(prefix="meco-context-test-") as directory:
+            root = Path(directory)
+            self._synthetic_checkout(root)
+            result = subprocess.run(
+                [sys.executable, "scripts/verify-build-context.py", "--root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            report = json.loads(result.stdout)
+            detail = json.dumps(report)[:3000]
+            self.assertEqual(result.returncode, 0, msg=detail)
+            self.assertEqual(report["status"], "passed", msg=detail)
+            self.assertEqual(report["actual"]["positive_control"]["status"], "detected", msg=detail)
 
     def test_dockerignore_has_required(self):
         content = Path(".dockerignore").read_text(encoding="utf-8")

@@ -1,17 +1,35 @@
 # MECO News Scraper — Production Readiness Implementation Plan
 
 Status: **Rebaselined after implementation audit — mandatory gates remain open**  
-Repository snapshot reviewed: 24-file original baseline plus the implemented unversioned directory snapshot  
+Repository snapshot reviewed: original baseline and historical imported snapshot; current review is commit `1e820fc968c3dbb3dfa35904ee01a3131f7dfc70` plus reviewed working-tree changes\
 Prepared from: repository-wide production and security audit  
 Primary objective: move the current prototype to a safe, observable, recoverable, reproducible, and supportable production service  
 Current release decision: **NO-GO until the mandatory gates in this plan and the linked closure plan pass**
 
 Controlling closure backlog: [`PRODUCTION_READINESS_CLOSURE_IMPLEMENTATION_PLAN.md`](PRODUCTION_READINESS_CLOSURE_IMPLEMENTATION_PLAN.md)  
-Last implementation verification: **2026-08-24**
+Last implementation verification: **2026-09-07**; current evidence and execution order are in the linked closure plan
 
 ---
 
-## Implementation-audit rebaseline — 2026-08-24
+## Current contract amendment — 2026-09-06
+
+The [September repository review](docs/reviews/2026-09-06/REVIEW.md) supersedes current-measurement claims in the historical rebaseline below. Initial verification found 379 passed and one context-test failure; a safe repeat had 379 passed and that test deselected, with 79% measured combined statement/branch coverage. Ruff/mypy passed. Local build verification was blocked by missing backend requirements, Docker runtime was unavailable, and actual target/rollout behavior was not validated. These are evidence limits, not fabricated failures or passes. Preserve the working-tree changes and identify future evidence with commit plus a source manifest. No original obligation is closed by this amendment.
+
+The existing closure plan remains the single controlling implementation backlog. Its revised Sections 2, 7, 8–12 and 17 map R01–R20 and historical F-001–F-028 to goals G0–G7, detailed acceptance cases, bounded verification loops, sub-agent packets and a corrected dependency order. Apply these contract corrections throughout this predecessor as well:
+
+1. Live state inspection uses a coherent WAL-aware read transaction; immutable reads are restricted to verified quiescent offline artifacts. A strict no-sidecar environment that prevents correct live inspection yields unavailable/non-ready, never stale success. Read-only live inspection changes no application rows, while SQLite coordination sidecars are explicitly documented. Offline dry-run retains zero writes through supplied frozen input and an optional offline history snapshot.
+2. Normal lifecycle logging remains stdout JSONL. A single-report `--json` command reserves stdout for exactly one JSON document and routes diagnostics to stderr. Redaction covers the final message/event as well as fields, exceptions and spawned workers.
+3. Persist general configuration hashes as provenance separately from frozen destination identity and retry policy. Source/ranking-only changes must not strand frozen deliveries. Actual destination/send-option changes follow audited reconciliation, preserving payloads, history and uncertainty.
+4. Every authoritative SQLite writer verifies `synchronous=FULL`, transaction-local capability/fence checks and actual lifetime OS exclusion. Missing leases do not erase unresolved send intent. Exhaustion remains terminal across ordinary invocations; an explicit audited same-generation one-shot retry preserves automatic attempt/elapsed history, including collection failure before the first frozen snapshot.
+5. Backup requires an existing valid WAL-consistent source and uniquely published verified artifact/manifest. Restore checks unresolved work in source and target and reconciles sends after the recovery point. An unverifiable recovery keeps delivery disabled. Preserve verified logical state through checkpoint/atomic replacement and retain recoverable operation evidence; do not require an impossible byte-identical hash after a legitimate checkpoint.
+6. Fix the destructive context test in a disposable fixture before full pytest. Build/context/layer canaries are synthetic and confined to dedicated temporary contexts, never the working checkout or real `.env`/backup/config paths. Missing Docker/inspection capability is Blocked, not a successful textual fallback.
+7. Bootstrap test infrastructure before dependent repairs; ratchet the measured baseline without lowering final ≥90% statement and ≥90% branch coverage or 100% required critical branches. Collect spawned-process coverage deliberately. Installed wheel and sdist checks run from unrelated directories with explicitly provisioned configuration.
+
+These are implementation targets, not a statement that the application has been fixed. Existing Linux/NAS and Windows obligations and human rollout authorization remain in force. ADR-C02 must reconcile advertised Python support across metadata, CI, docs and decisions; do not silently narrow support or invent target evidence. The historical section below remains dated evidence, not a current status report.
+
+The 2026-09-07 local implementation checkpoint is recorded in the closure plan and its [candidate evidence index](docs/evidence/production-readiness/local-2026-09-07/index.json). It supersedes only local measurement claims; it does not close findings, gates, target-platform obligations, independent review, signatures, approvals, or rollout requirements.
+
+## Historical implementation-audit rebaseline — 2026-08-24
 
 The implementation was checked against this plan after the repository was reported complete. The result is **partially implemented, not production-ready**. This rebaseline does not discard or weaken any original requirement. It prevents implemented files, passing smoke tests, or the presence of documentation from being mistaken for acceptance evidence.
 
@@ -276,7 +294,7 @@ stateDiagram-v2
     sending --> completed_empty: empty-coverage chunk acknowledged
     needs_attention --> sending: operator resolves retry
     needs_attention --> completed: operator resolves sent and remaining work completes
-    failed_terminal --> retry_wait: audited one-shot terminal retry of the same frozen generation
+    failed_terminal --> retry_wait: audited one-shot retry of the same generation, preserving any frozen snapshot
 ```
 
 Leases are orthogonal to delivery state. Reclaiming an expired lease is safe only after inspecting the durable delivery and chunk states.
@@ -311,7 +329,7 @@ The concrete schema version is assigned by the approved immutable migration cata
 | `article_history` | URL key, versioned title keys, delivery/chunk, sent/publication timestamps |
 | `source_results` | Source outcome, bytes, duration, accepted/quarantined counts, stable reason code |
 
-Enable `PRAGMA foreign_keys=ON`, WAL, an explicit busy timeout, UTC timestamps, and short transaction contexts. Do not rely on a row existing as proof that its state transition was valid; transition methods must use conditional updates and verify affected-row counts.
+Enable `PRAGMA foreign_keys=ON`, WAL, verified `PRAGMA synchronous=FULL` on every authoritative writer, an explicit busy timeout, UTC timestamps, and short transaction contexts. Do not rely on a row existing as proof that its state transition was valid; transition methods must use conditional updates and verify affected-row counts.
 
 ---
 
@@ -616,7 +634,7 @@ Required behavior:
 - perform option validation before writable state, migration, collection, or Telegram initialization;
 - reserve explicit commands for retry and ambiguous-delivery resolution;
 - make dry-run an offline mode using explicitly supplied frozen local candidate input; it never performs DNS/HTTP/Telegram calls;
-- make dry-run use existing history read-only when present;
+- make dry-run use only an explicitly supplied offline history snapshot when history is requested; never open live writable state or create sidecars for preview;
 - add `--ignore-history` for intentional all-candidate previews.
 
 Acceptance:
@@ -821,7 +839,7 @@ Requirements:
 - force creates generation N+1;
 - force still excludes prior sent history unless an explicit audited replay command is used;
 - manual resolution requires delivery/chunk ID, reason, operator identity, and timestamp.
-- terminal retry reopens the same frozen failed generation to `retry_wait` only for an allowlisted retry-safe reason, with no ambiguous/in-flight chunk, and grants a bounded audited one-shot attempt without resetting automatic retry history;
+- terminal retry reopens the same failed generation to `retry_wait` only for an allowlisted retry-safe reason, with no ambiguous/in-flight chunk, and grants a bounded audited one-shot attempt without resetting automatic retry history; preserve any frozen snapshot, or permit its first creation after an explicit collection-only retry as defined in closure C2.4;
 
 Wave 2 gate:
 
@@ -1223,7 +1241,7 @@ Required fields:
 
 Requirements:
 
-- JSON to stdout;
+- normal lifecycle JSONL to stdout; single-report JSON commands reserve stdout for one document and put diagnostics on stderr;
 - optional rotating JSONL file for Windows;
 - sanitize controls and bidirectional text;
 - redact tokens, authorization, URL credentials, query strings, and payloads;
@@ -1288,13 +1306,13 @@ Artifacts:
 
 Restore:
 
-1. Stop schedulers and acquire the exclusive process-lifetime maintenance guard; refuse active leases or in-flight chunks.
+1. Stop schedulers and acquire the exclusive process-lifetime maintenance guard; refuse active leases and unresolved prepared/retry/ambiguous/in-flight/terminal-with-unsent work in source or target until audited reconciliation. Reconcile sends after the backup recovery point; unverifiable history keeps delivery disabled.
 2. Verify checksum, manifest, application/schema/source compatibility, and integrity.
-3. Preserve the current target as a separately verified manifested artifact.
+3. Preserve the current target as a separately verified manifested artifact without first renaming away the live target. If the target is absent/corrupt, retain available evidence and follow the explicitly delivery-disabled recovery procedure in closure C2.5.
 4. Restore to a temporary path and handle WAL/SHM consistently.
 5. Verify/apply only supported migrations on the temporary copy.
 6. Run integrity and the owner-aware non-public `maintenance_verify` routine on the temporary copy; normal preflight must remain non-ready while maintenance is active.
-7. Atomically replace state and restore ownership/mode/ACL.
+7. Close handles, settle WAL/SHM under exclusive authority, verify ownership/mode/ACL, and atomically replace state on the same volume with a durable recovery-operation record.
 8. Run post-swap integrity and `maintenance_verify`; automatically restore the preserved target before releasing maintenance if either fails.
 9. Keep scheduling disabled, release maintenance, require normal offline preflight exit 0, and automatically restore under reacquired maintenance if that final check fails.
 10. Re-enabling exactly one scheduler is an explicit later operator action.

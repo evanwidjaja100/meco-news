@@ -21,7 +21,7 @@ class TestAppCover(unittest.TestCase):
             with (
                 patch.dict(
                     "os.environ",
-                    {"STATE_DB": str(p), "TELEGRAM_BOT_TOKEN": "123456:real-token-12345678901234567890", "TELEGRAM_CHAT_ID": "1"},
+                    {"STATE_DB": str(p), "TELEGRAM_BOT_TOKEN": "synthetic-real-token-12345678901234567890", "TELEGRAM_CHAT_ID": "1"},
                 ),
                 patch("meco_news.app.collect_all", return_value=failed),
             ):
@@ -41,7 +41,9 @@ class TestAppCover(unittest.TestCase):
             from meco_news.storage import StateStore
 
             with StateStore(p) as s:
-                s.create_delivery("2026-08-30", config_hash="h")
+                s.acquire_lease("delivery", "fixture", 180)
+                s.create_delivery("2026-08-30", config_hash="h", owner_id="fixture")
+                s.release_lease("delivery", "fixture")
             with patch.dict("os.environ", {"STATE_DB": str(p)}):
                 # backup
                 self.assertEqual(main(["--backup", str(bak)]), 0)
@@ -49,7 +51,9 @@ class TestAppCover(unittest.TestCase):
                 # find backup file
                 db_files = list(bak.glob("*.db"))
                 self.assertTrue(len(db_files) > 0)
-                self.assertEqual(main(["--restore", str(db_files[0])]), 0)
+                restored = Path(d) / "restored.db"
+                with patch.dict("os.environ", {"STATE_DB": str(restored)}):
+                    self.assertEqual(main(["--restore", str(db_files[0])]), 0)
 
     def test_collectors_repair(self):
         from meco_news.collectors import parse_feed
@@ -68,7 +72,7 @@ class TestAppCover(unittest.TestCase):
             p = Path(d) / "db.db"
             with StateStore(p) as s:
                 s.acquire_lease("delivery", "owner1", 1)
-                delivery = s.create_delivery("2026-08-25", config_hash="h")
+                delivery = s.create_delivery("2026-08-25", config_hash="h", owner_id="owner1")
                 s.prepare_delivery(delivery.delivery_id, [], ["<b>hi</b>"], owner_id="owner1")
                 chunk = s.due_chunks(delivery.delivery_id)[0]
                 s.begin_chunk_attempt(chunk.chunk_id, run_id="r", owner_id="owner1")

@@ -72,7 +72,7 @@ def _prepared_delivery(path: Path, owner: str = "owner"):
 
     with StateStore(path) as store:
         store.acquire_lease("delivery", owner, 180)
-        delivery = store.create_delivery("2026-08-25", config_hash="h")
+        delivery = store.create_delivery("2026-08-25", config_hash="h", owner_id=owner)
         item = _news_item()
         store.prepare_delivery(
             delivery.delivery_id,
@@ -207,6 +207,11 @@ class TestC13RetryExhaustion(unittest.TestCase):
                 store.connection.execute(
                     "UPDATE outbox_chunks SET state='retry_wait', attempt_count=1, "
                     "next_attempt_at='2026-09-07T12:00:00+00:00'"
+                )
+                # Keep the persisted budget origin before the frozen health
+                # clock; a backwards clock is intentionally fail-closed.
+                store.connection.execute(
+                    "UPDATE deliveries SET started_at='2026-09-05T21:00:00+00:00'"
                 )
                 store.connection.commit()
             with frozen_local(5, 0):
@@ -482,7 +487,8 @@ class TestC13FullTruthTable(unittest.TestCase):
                 store.connection.execute(
                     "UPDATE deliveries SET state='retry_wait', "
                     "terminal_error='all_sources_failed: petromindo, antara', "
-                    "next_attempt_at='2026-09-07T00:00:00+00:00'"
+                    "next_attempt_at='2026-09-07T00:00:00+00:00', "
+                    "started_at='2020-01-01T00:00:00+00:00'"
                 )
                 store.connection.commit()
             with frozen_local(5, 0):

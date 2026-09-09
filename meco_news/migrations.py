@@ -8,7 +8,16 @@ from dataclasses import dataclass
 from hashlib import sha256
 
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 5
+
+LEGACY_FENCE_TRIGGERS = (
+    'trg_sent_articles_no_insert',
+    'trg_sent_articles_no_update',
+    'trg_sent_articles_no_delete',
+    'trg_runs_no_insert',
+    'trg_runs_no_update',
+    'trg_runs_no_delete',
+)
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -60,6 +69,15 @@ CREATE TABLE IF NOT EXISTS deliveries (
     completed_at TEXT,
     next_attempt_at TEXT,
     terminal_error TEXT NOT NULL DEFAULT '',
+    retry_policy_json TEXT NOT NULL DEFAULT '{}',
+    retry_first_at TEXT,
+    retry_last_at TEXT,
+    retry_attempt_high_water INTEGER NOT NULL DEFAULT 0,
+    retry_deadline_at TEXT,
+    retry_elapsed_seconds INTEGER NOT NULL DEFAULT 0,
+    force_operator TEXT NOT NULL DEFAULT '',
+    force_reason TEXT NOT NULL DEFAULT '',
+    predecessor_delivery_id INTEGER REFERENCES deliveries(delivery_id),
     UNIQUE(delivery_date, generation)
 );
 
@@ -115,6 +133,9 @@ CREATE TABLE IF NOT EXISTS outbox_chunks (
     error_text TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     sent_at TEXT,
+    first_attempt_at TEXT,
+    last_attempt_at TEXT,
+    retry_deadline_at TEXT,
     UNIQUE(delivery_id, sequence)
 );
 
@@ -158,17 +179,92 @@ CREATE TABLE IF NOT EXISTS delivery_resolutions (
     resolved_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS state_transitions (
+    transition_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    from_state TEXT NOT NULL DEFAULT '',
+    to_state TEXT NOT NULL,
+    actor_type TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    run_id TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS force_audits (
+    force_audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    delivery_id INTEGER NOT NULL REFERENCES deliveries(delivery_id),
+    predecessor_delivery_id INTEGER NOT NULL REFERENCES deliveries(delivery_id),
+    operator TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    config_hash TEXT NOT NULL DEFAULT '',
+    target_snapshot TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS maintenance_fences (
+    fence_id INTEGER PRIMARY KEY CHECK(fence_id = 1),
+    epoch INTEGER NOT NULL,
+    token TEXT NOT NULL,
+    owner TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    acquired_at TEXT NOT NULL,
+    released_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_article_history_url ON article_history(url_key, sent_at);
 CREATE INDEX IF NOT EXISTS idx_article_history_title ON article_history(title_key, sent_at);
 CREATE INDEX IF NOT EXISTS idx_deliveries_date_state ON deliveries(delivery_date, state);
 CREATE INDEX IF NOT EXISTS idx_chunks_due ON outbox_chunks(state, next_attempt_at);
 CREATE INDEX IF NOT EXISTS idx_source_results_delivery ON source_results(delivery_id);
+CREATE INDEX IF NOT EXISTS idx_state_transitions_entity ON state_transitions(entity_type, entity_id, transition_id);
+CREATE INDEX IF NOT EXISTS idx_force_audits_delivery ON force_audits(delivery_id, force_audit_id);
+
+-- C2.2c: old-writer fence - legacy sent_articles/runs are read-only after v4
+CREATE TRIGGER IF NOT EXISTS trg_sent_articles_no_insert
+BEFORE INSERT ON sent_articles
+BEGIN
+SELECT RAISE(ABORT, 'legacy sent_articles writes are blocked after migration v4');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sent_articles_no_update
+BEFORE UPDATE ON sent_articles
+BEGIN
+SELECT RAISE(ABORT, 'legacy sent_articles writes are blocked after migration v4');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sent_articles_no_delete
+BEFORE DELETE ON sent_articles
+BEGIN
+SELECT RAISE(ABORT, 'legacy sent_articles writes are blocked after migration v4');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_runs_no_insert
+BEFORE INSERT ON runs
+BEGIN
+SELECT RAISE(ABORT, 'legacy runs writes are blocked after migration v4');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_runs_no_update
+BEFORE UPDATE ON runs
+BEGIN
+SELECT RAISE(ABORT, 'legacy runs writes are blocked after migration v4');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_runs_no_delete
+BEFORE DELETE ON runs
+BEGIN
+SELECT RAISE(ABORT, 'legacy runs writes are blocked after migration v4');
+END;
 """
 
 MIGRATION_DESCRIPTIONS = {
     1: "legacy sent_articles/runs adoption",
     2: "durable leases deliveries items chunks and source results",
     3: "delivery target snapshot for outbox immutability",
+    4: 'legacy old-writer fence on sent_articles and runs',
+    5: "durable retry policy, force audit, transition audit, and maintenance facts",
 }
 
 # ponytail: immutable per-migration bytes Ã¢â‚¬â€ adding a future migration must not change prior checksums (C2.1)
@@ -321,6 +417,97 @@ CREATE INDEX IF NOT EXISTS idx_source_results_delivery ON source_results(deliver
 -- C3.3: freeze outbox destination identity Ã¢â‚¬â€ target_snapshot binds chat/config/parse_mode
 ALTER TABLE deliveries ADD COLUMN target_snapshot TEXT NOT NULL DEFAULT '';
 """,
+    4: """
+-- C2.2c: old-writer fence - legacy sent_articles/runs are read-only after v4
+CREATE TRIGGER IF NOT EXISTS trg_sent_articles_no_insert
+BEFORE INSERT ON sent_articles
+BEGIN
+SELECT RAISE(ABORT, 'legacy sent_articles writes are blocked after migration v4');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sent_articles_no_update
+BEFORE UPDATE ON sent_articles
+BEGIN
+SELECT RAISE(ABORT, 'legacy sent_articles writes are blocked after migration v4');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sent_articles_no_delete
+BEFORE DELETE ON sent_articles
+BEGIN
+SELECT RAISE(ABORT, 'legacy sent_articles writes are blocked after migration v4');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_runs_no_insert
+BEFORE INSERT ON runs
+BEGIN
+SELECT RAISE(ABORT, 'legacy runs writes are blocked after migration v4');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_runs_no_update
+BEFORE UPDATE ON runs
+BEGIN
+SELECT RAISE(ABORT, 'legacy runs writes are blocked after migration v4');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_runs_no_delete
+BEFORE DELETE ON runs
+BEGIN
+SELECT RAISE(ABORT, 'legacy runs writes are blocked after migration v4');
+END;
+""",
+    5: """
+-- C2.2/C2.4/C3.2: provision all durable facts needed for safe resume,
+-- forced generations, reconciliation, and operator audit.
+ALTER TABLE deliveries ADD COLUMN retry_policy_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE deliveries ADD COLUMN retry_first_at TEXT;
+ALTER TABLE deliveries ADD COLUMN retry_last_at TEXT;
+ALTER TABLE deliveries ADD COLUMN retry_attempt_high_water INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE deliveries ADD COLUMN retry_deadline_at TEXT;
+ALTER TABLE deliveries ADD COLUMN retry_elapsed_seconds INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE deliveries ADD COLUMN force_operator TEXT NOT NULL DEFAULT '';
+ALTER TABLE deliveries ADD COLUMN force_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE deliveries ADD COLUMN predecessor_delivery_id INTEGER REFERENCES deliveries(delivery_id);
+ALTER TABLE outbox_chunks ADD COLUMN first_attempt_at TEXT;
+ALTER TABLE outbox_chunks ADD COLUMN last_attempt_at TEXT;
+ALTER TABLE outbox_chunks ADD COLUMN retry_deadline_at TEXT;
+
+CREATE TABLE IF NOT EXISTS state_transitions (
+    transition_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    from_state TEXT NOT NULL DEFAULT '',
+    to_state TEXT NOT NULL,
+    actor_type TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    run_id TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS force_audits (
+    force_audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    delivery_id INTEGER NOT NULL REFERENCES deliveries(delivery_id),
+    predecessor_delivery_id INTEGER NOT NULL REFERENCES deliveries(delivery_id),
+    operator TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    config_hash TEXT NOT NULL DEFAULT '',
+    target_snapshot TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS maintenance_fences (
+    fence_id INTEGER PRIMARY KEY CHECK(fence_id = 1),
+    epoch INTEGER NOT NULL,
+    token TEXT NOT NULL,
+    owner TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    acquired_at TEXT NOT NULL,
+    released_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_state_transitions_entity ON state_transitions(entity_type, entity_id, transition_id);
+CREATE INDEX IF NOT EXISTS idx_force_audits_delivery ON force_audits(delivery_id, force_audit_id);
+""",
 }
 
 
@@ -367,6 +554,31 @@ REQUIRED_CATALOG_OBJECTS: dict[int, tuple[str, ...]] = {
         "delivery_resolutions",
     ),
     3: ("target_snapshot",),
+    4: (
+        'trg_sent_articles_no_insert',
+        'trg_sent_articles_no_update',
+        'trg_sent_articles_no_delete',
+        'trg_runs_no_insert',
+        'trg_runs_no_update',
+        'trg_runs_no_delete',
+    ),
+    5: (
+        "retry_policy_json",
+        "retry_first_at",
+        "retry_last_at",
+        "retry_attempt_high_water",
+        "retry_deadline_at",
+        "retry_elapsed_seconds",
+        "force_operator",
+        "force_reason",
+        "predecessor_delivery_id",
+        "first_attempt_at",
+        "last_attempt_at",
+        "retry_deadline_at",
+        "state_transitions",
+        "force_audits",
+        "maintenance_fences",
+    ),
 }
 
 CatalogEntry = tuple[int, str, str]

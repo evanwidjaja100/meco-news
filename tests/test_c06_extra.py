@@ -13,7 +13,7 @@ class TestExtra(unittest.TestCase):
 
         # Exercise dispatch without allowing a live collection or Telegram call.
         with patch("meco_news.app.run_once", return_value=RunOutcome(0, "forced-test")) as run:
-            self.assertEqual(main(["--force"]), 0)
+            self.assertEqual(main(["--force", "--reason", "test", "--operator", "tester"]), 0)
             run.assert_called_once()
             self.assertTrue(run.call_args.kwargs["force"])
         with tempfile.TemporaryDirectory() as d:
@@ -23,7 +23,7 @@ class TestExtra(unittest.TestCase):
             with (
                 patch.dict(
                     "os.environ",
-                    {"STATE_DB": str(p), "TELEGRAM_BOT_TOKEN": "123456:real-token-12345678901234567890", "TELEGRAM_CHAT_ID": "1"},
+                    {"STATE_DB": str(p), "TELEGRAM_BOT_TOKEN": "synthetic-real-token-12345678901234567890", "TELEGRAM_CHAT_ID": "1"},
                 ),
                 patch("meco_news.app._is_due", return_value=False),
                 patch("meco_news.app._has_recovery_work", return_value=False),
@@ -57,8 +57,8 @@ class TestExtra(unittest.TestCase):
             p = Path(d) / "db.db"
             with StateStore(p) as s:
                 # Test all transitions
-                d1 = s.create_delivery("2026-09-01", config_hash="h")
                 s.acquire_lease("delivery", "o", 180)
+                d1 = s.create_delivery("2026-09-01", config_hash="h", owner_id="o")
                 s.prepare_delivery(d1.delivery_id, [], ["<b>hi</b>"], owner_id="o")
                 # Test heartbeat
                 s.heartbeat_lease("delivery", "o", 180)
@@ -74,18 +74,23 @@ class TestExtra(unittest.TestCase):
                 time.sleep(1.1)
                 s.recover_expired_lease("delivery")
                 # Test fail_delivery
-                d2 = s.create_delivery("2026-09-02", config_hash="h")
                 s.acquire_lease("delivery", "o2", 180)
+                d2 = s.create_delivery("2026-09-02", config_hash="h", owner_id="o2")
                 s.prepare_delivery(d2.delivery_id, [], ["<b>hi2</b>"], owner_id="o2")
                 chunk = s.due_chunks(d2.delivery_id)[0]
                 s.begin_chunk_attempt(chunk.chunk_id, run_id="r", owner_id="o2")
                 s.finish_chunk(chunk.chunk_id, "rejected_terminal", run_id="r", owner_id="o2")
                 self.assertEqual(s.delivery(d2.delivery_id).state, "failed_terminal")
                 # Test set_collection_retry
-                d3 = s.create_delivery("2026-09-03", config_hash="h")
+                d3 = s.create_delivery("2026-09-03", config_hash="h", owner_id="o2")
                 from datetime import datetime, UTC, timedelta
 
-                s.set_collection_retry(d3.delivery_id, next_attempt_at=datetime.now(UTC) + timedelta(seconds=10), error="test")
+                s.set_collection_retry(
+                    d3.delivery_id,
+                    next_attempt_at=datetime.now(UTC) + timedelta(seconds=10),
+                    error="test",
+                    owner_id="o2",
+                )
                 self.assertEqual(s.delivery(d3.delivery_id).state, "retry_wait")
 
     def test_telegram_all(self):

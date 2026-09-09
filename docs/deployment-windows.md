@@ -1,6 +1,6 @@
 # Windows Task Scheduler deployment
 
-Use a dedicated non-admin account, a project-local virtual environment, explicit ACLs, and a local NTFS state directory. Do not rely on PATH or the host timezone for scheduling.
+Use Python 3.12–3.14, a dedicated non-admin account, a project-local virtual environment, explicit ACLs, and a local NTFS state directory. Do not rely on PATH or the host timezone for scheduling.
 
 ```powershell
 py -3.13 -m venv .venv
@@ -24,4 +24,3 @@ Uninstall only the task; it preserves `.env`, state, logs, and backups:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/uninstall-windows-task.ps1
 ```
-

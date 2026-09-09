@@ -10,38 +10,45 @@ class Test90(unittest.TestCase):
     def test_app_main_all(self):
         from meco_news.app import main
 
-        # Test all branches
-        self.assertEqual(main(["--config-show", "--json"]), 0)
-        self.assertIn(main(["--preflight", "--json"]), (0, 3, 4, 5, 6, 7))
-        self.assertEqual(main(["--status", "--json"]), 0)
-        self.assertEqual(main(["--healthcheck", "--json"]), 1)
+        # Test all branches against a disposable state path.  Health is
+        # expected to fail closed for a missing state database; an unrelated
+        # developer checkout must not change this assertion.
+        with tempfile.TemporaryDirectory() as report_dir, patch.dict("os.environ", {"STATE_DB": str(Path(report_dir) / "state.db")}):
+            self.assertEqual(main(["--config-show", "--json"]), 0)
+            self.assertIn(main(["--preflight", "--json"]), (0, 3, 4, 5, 6, 7))
+            self.assertEqual(main(["--status", "--json"]), 0)
+            self.assertEqual(main(["--healthcheck", "--json"]), 1)
         # Test backup/restore
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "state.db"
             from meco_news.storage import StateStore
 
             with StateStore(p) as s:
-                s.create_delivery("2026-10-01", config_hash="h")
+                s.acquire_lease("delivery", "fixture", 180)
+                s.create_delivery("2026-10-01", config_hash="h", owner_id="fixture")
+                s.release_lease("delivery", "fixture")
             with patch.dict("os.environ", {"STATE_DB": str(p)}):
                 bak = Path(d) / "bak"
                 bak.mkdir()
                 self.assertEqual(main(["--backup", str(bak)]), 0)
                 db = list(bak.glob("*.db"))[0]
-                self.assertEqual(main(["--restore", str(db)]), 0)
+                restored = Path(d) / "restored.db"
+                with patch.dict("os.environ", {"STATE_DB": str(restored)}):
+                    self.assertEqual(main(["--restore", str(db)]), 0)
                 # Test resolve with proper lease and ambiguous
                 with StateStore(p) as s:
                     s.acquire_lease("delivery", "o2", 180)
-                    d1 = s.create_delivery("2026-10-02", config_hash="h")
+                    d1 = s.create_delivery("2026-10-02", config_hash="h", owner_id="o2")
                     s.prepare_delivery(d1.delivery_id, [], ["<b>hi</b>"], owner_id="o2")
                     chunk = s.due_chunks(d1.delivery_id)[0]
                     s.begin_chunk_attempt(chunk.chunk_id, run_id="r", owner_id="o2")
                     s.finish_chunk(chunk.chunk_id, "ambiguous", run_id="r", owner_id="o2")
                     s.release_lease("delivery", "o2")
-                with StateStore(p) as s:
+                with StateStore(p, readonly=True) as s:
                     chunk_id = s.connection.execute("SELECT chunk_id FROM outbox_chunks WHERE state='ambiguous'").fetchone()[0]
-                    self.assertEqual(
-                        main(["--resolve-chunk", str(chunk_id), "--resolution", "retry", "--reason", "test", "--operator", "tester"]), 0
-                    )
+                self.assertEqual(
+                    main(["--resolve-chunk", str(chunk_id), "--resolution", "retry", "--reason", "test", "--operator", "tester"]), 0
+                )
 
     def test_collectors_all(self):
         from meco_news.collectors import parse_feed, _collect_rss, _collect_gdelt
@@ -70,8 +77,9 @@ class Test90(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "db.db"
             with StateStore(p) as s:
+                s.acquire_lease("delivery", "o", 180)
                 # Test create with generation
-                d1 = s.create_delivery("2026-10-03", config_hash="h", generation=5)
+                d1 = s.create_delivery("2026-10-03", config_hash="h", generation=5, owner_id="o")
                 self.assertEqual(d1.generation, 5)
                 # Test already_completed
                 s.acquire_lease("delivery", "o", 180)

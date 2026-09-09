@@ -13,12 +13,29 @@ from meco_news.backup import create_backup, restore_backup
 from meco_news.collectors import CollectionResult, SourceResult
 from meco_news.config import ConfigurationError, load_config
 from meco_news.models import NewsItem
+from meco_news.maintenance import MaintenanceContext
 from meco_news.ranking import deduplicate, filter_fresh
-from meco_news.migrations import MigrationGuard
+from meco_news.migrations import CURRENT_SCHEMA_VERSION, MigrationGuard
 from meco_news.storage import MigrationRequiredError, StateStore, run_catalog_migrations
 from meco_news.telegram import build_digest, utf16_units
 from meco_news.timezones import get_timezone
 from meco_news.urls import URLPolicyError, validate_url
+
+
+def _complete_via_outbox(store: StateStore, delivery_date: str, item: NewsItem, *, owner: str = "fixture") -> None:
+    delivery = store.active_delivery(delivery_date)
+    if delivery is None:
+        delivery = store.create_delivery(delivery_date, owner_id=owner)
+    store.prepare_delivery(
+        delivery.delivery_id,
+        [item],
+        ["<b>fixture delivery</b>"],
+        owner_id=owner,
+        item_chunk_indexes={item.fingerprint: 0},
+    )
+    chunk = store.due_chunks(delivery.delivery_id)[0]
+    store.begin_chunk_attempt(chunk.chunk_id, run_id=f"{owner}-run", owner_id=owner)
+    store.finish_chunk(chunk.chunk_id, "accepted", run_id=f"{owner}-run", owner_id=owner, telegram_message_id="1")
 
 
 class ConfigurationAndURLTests(unittest.TestCase):
@@ -96,7 +113,7 @@ class LeaseAndOutboxTests(unittest.TestCase):
             with StateStore(path) as first, StateStore(path) as second:
                 self.assertTrue(first.acquire_lease("delivery", "one", 180).acquired)
                 self.assertFalse(second.acquire_lease("delivery", "two", 180).acquired)
-                delivery = first.create_delivery("2026-08-24", config_hash="hash")
+                delivery = first.create_delivery("2026-08-24", config_hash="hash", owner_id="one")
                 first.prepare_delivery(
                     delivery.delivery_id, [self._item()], ["<b>hello</b>"], owner_id="one", item_chunk_indexes={self._item().fingerprint: 0}
                 )
@@ -114,7 +131,7 @@ class LeaseAndOutboxTests(unittest.TestCase):
             with StateStore(path) as store:
                 self.assertTrue(store.acquire_lease("scheduler", "daemon", 180).acquired)
                 self.assertTrue(store.acquire_lease("delivery", "owner", 180).acquired)
-                delivery = store.create_delivery("2026-08-24", config_hash="hash")
+                delivery = store.create_delivery("2026-08-24", config_hash="hash", owner_id="owner")
                 item = self._item()
                 store.prepare_delivery(
                     delivery.delivery_id, [item], ["<b>hello</b>"], owner_id="owner", item_chunk_indexes={item.fingerprint: 0}
@@ -131,7 +148,7 @@ class LeaseAndOutboxTests(unittest.TestCase):
             with StateStore(path) as store:
                 self.assertTrue(store.acquire_lease("delivery", "owner", 180).acquired)
                 item = self._item()
-                delivery = store.create_delivery("2026-08-24", config_hash="hash")
+                delivery = store.create_delivery("2026-08-24", config_hash="hash", owner_id="owner")
                 store.prepare_delivery(
                     delivery.delivery_id, [item], ["<b>hello</b>"], owner_id="owner", item_chunk_indexes={item.fingerprint: 0}
                 )
@@ -142,8 +159,16 @@ class LeaseAndOutboxTests(unittest.TestCase):
                 )
                 self.assertEqual(current.state, "needs_attention")
                 self.assertEqual(store.due_chunks(delivery.delivery_id), [])
+                store.release_lease("delivery", "owner")
+            with MaintenanceContext.acquire(path, owner="operator") as maintenance, StateStore(
+                path, maintenance_context=maintenance
+            ) as store:
                 resolved = store.resolve_chunk(
-                    chunk.chunk_id, "retry", owner_id="owner", reason="confirmed not delivered", operator="tester"
+                    chunk.chunk_id,
+                    "retry",
+                    reason="confirmed not delivered",
+                    operator="tester",
+                    maintenance_context=maintenance,
                 )
                 self.assertEqual(resolved.state, "sending")
                 self.assertEqual(len(store.due_chunks(delivery.delivery_id)), 1)
@@ -175,9 +200,9 @@ class LeaseAndOutboxTests(unittest.TestCase):
                 applied = run_catalog_migrations(migration, guard=MigrationGuard.for_tests(), app_version="2.0.0")
             finally:
                 migration.close()
-            self.assertEqual(applied, 3)
+            self.assertEqual(applied, CURRENT_SCHEMA_VERSION)
             with StateStore(path) as store:
-                self.assertEqual(store.schema_version, 3)
+                self.assertEqual(store.schema_version, CURRENT_SCHEMA_VERSION)
                 self.assertTrue(store.already_completed("2026-08-24"))
                 self.assertEqual(store.integrity_check(), "ok")
 
@@ -188,8 +213,10 @@ class LeaseAndOutboxTests(unittest.TestCase):
             restored = root / "restored.db"
             item = self._item()
             with StateStore(source) as store:
-                store.start_run("2026-08-24")
-                store.complete_run("2026-08-24", [item])
+                store.acquire_lease("delivery", "fixture", 180)
+                store.start_run("2026-08-24", owner_id="fixture")
+                _complete_via_outbox(store, "2026-08-24", item)
+                store.release_lease("delivery", "fixture")
             artifact = create_backup(source, root / "backups", config_hash="config")
             self.assertTrue(artifact.manifest.exists())
             restore_backup(artifact.database, restored)
@@ -227,7 +254,7 @@ class CLIAndMessageTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as directory,
             patch.dict(
                 "os.environ",
-                {"STATE_DB": str(Path(directory) / "state.db"), "TELEGRAM_BOT_TOKEN": "123456:real-token-value", "TELEGRAM_CHAT_ID": "1"},
+                {"STATE_DB": str(Path(directory) / "state.db"), "TELEGRAM_BOT_TOKEN": "synthetic-real-token-value", "TELEGRAM_CHAT_ID": "1"},
                 clear=False,
             ),
             patch("meco_news.app.collect_all", return_value=collection),
@@ -245,12 +272,13 @@ class CLIAndMessageTests(unittest.TestCase):
 
     def test_dry_run_does_not_create_state(self) -> None:
         result = CollectionResult([], [SourceResult("fake", "fake", "succeeded")], datetime.now(UTC), 0)
+        frozen_input = str(Path(__file__).parent / "fixtures" / "frozen-empty-v1.json")
         with (
             tempfile.TemporaryDirectory() as directory,
             patch.dict("os.environ", {"STATE_DB": str(Path(directory) / "state.db")}, clear=False),
             patch("meco_news.app.collect_all", return_value=result),
         ):
-            self.assertEqual(main(["--dry-run", "--config", "config/watchlist.json"]), 0)
+            self.assertEqual(main(["--dry-run", "--frozen-input", frozen_input, "--config", "config/watchlist.json"]), 0)
             self.assertFalse((Path(directory) / "state.db").exists())
 
     def test_emoji_message_uses_utf16_bound_and_omits_oversized_item(self) -> None:

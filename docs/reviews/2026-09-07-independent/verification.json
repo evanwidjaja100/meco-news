@@ -1,0 +1,232 @@
+{
+  "review_date": "2026-09-07",
+  "git_head": "1e820fc968c3dbb3dfa35904ee01a3131f7dfc70",
+  "scope": "current modified/untracked working tree; application inputs left unchanged",
+  "python": "3.14.6",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "sqlite": "3.50.4",
+  "sqlite_source_id": "2025-07-30 19:33:53 4d8adfb30e03f9cf27f800a2c1ba3c48fb4ca1b08b0f5ed59a4d5ecbf45e20a3",
+  "tools": {
+    "pytest": "8.3.5",
+    "coverage": "7.6.11",
+    "ruff": "0.14.14",
+    "mypy": "1.19.1",
+    "build": "1.2.2.post1",
+    "setuptools": "75.8.0",
+    "wheel": "0.45.1"
+  },
+  "pytest": {
+    "passed": 509,
+    "failed": 0,
+    "duration_seconds": 143.08,
+    "command": ".venv/Scripts/python.exe -m coverage run --data-file=docs/reviews/review-2026-09-07.coverage --branch --source=meco_news -m pytest --junitxml=docs/reviews/review-2026-09-07-pytest.xml"
+  },
+  "coverage_totals": {
+    "covered_lines": 5750,
+    "num_statements": 6147,
+    "percent_covered": 92.66413987039981,
+    "percent_covered_display": "93",
+    "missing_lines": 397,
+    "excluded_lines": 2,
+    "num_branches": 2032,
+    "num_partial_branches": 149,
+    "covered_branches": 1829,
+    "missing_branches": 203
+  },
+  "ruff": {
+    "exit_code": 0,
+    "command": ".venv/Scripts/python.exe -m ruff check meco_news tests scripts"
+  },
+  "mypy": {
+    "exit_code": 0,
+    "source_modules": 22,
+    "command": ".venv/Scripts/python.exe -m mypy meco_news"
+  },
+  "coverage_gate": {
+    "reported_passed": true,
+    "critical_register_reliable": false,
+    "locations": [
+      {
+        "file": "meco_news/app.py",
+        "line": 1008,
+        "description": "in-flight failure remains operator attention",
+        "tests": [
+          "R01-ack-commit-failure"
+        ],
+        "current_source_line": "                with suppress(Exception):",
+        "measured_executable_line": false,
+        "measured_branch_origin": false
+      },
+      {
+        "file": "meco_news/app.py",
+        "line": 1090,
+        "description": "scheduler consumes terminal outcome",
+        "tests": [
+          "R20-scheduler-outcome"
+        ],
+        "current_source_line": "    ttl_seconds: int,",
+        "measured_executable_line": false,
+        "measured_branch_origin": false
+      },
+      {
+        "file": "meco_news/storage.py",
+        "line": 1159,
+        "description": "same-transaction lease authority",
+        "tests": [
+          "R07-owner-fence"
+        ],
+        "current_source_line": "                    self.connection.execute(",
+        "measured_executable_line": false,
+        "measured_branch_origin": false
+      },
+      {
+        "file": "meco_news/storage.py",
+        "line": 1200,
+        "description": "orphan in-flight recovery",
+        "tests": [
+          "R01-orphan-recovery"
+        ],
+        "current_source_line": "            try:",
+        "measured_executable_line": false,
+        "measured_branch_origin": false
+      },
+      {
+        "file": "meco_news/storage.py",
+        "line": 1790,
+        "description": "retry budget fail-closed",
+        "tests": [
+          "R06-retry-budget"
+        ],
+        "current_source_line": "                    \"UPDATE deliveries SET state='failed_terminal',completed_at=?,terminal_error=? WHERE delivery_id=? AND state NOT IN ('completed','completed_empty','failed_terminal','needs_attention')\",",
+        "measured_executable_line": false,
+        "measured_branch_origin": false
+      },
+      {
+        "file": "meco_news/network.py",
+        "line": 171,
+        "description": "validated address pinned before request",
+        "tests": [
+          "F016-pinned-egress"
+        ],
+        "current_source_line": "                finally:",
+        "measured_executable_line": false,
+        "measured_branch_origin": false
+      },
+      {
+        "file": "meco_news/telegram.py",
+        "line": 183,
+        "description": "invalid success envelope is ambiguous",
+        "tests": [
+          "R08-telegram-envelope"
+        ],
+        "current_source_line": "                raise TelegramSendError(\"telegram_ambiguous\", \"Telegram acceptance is unknown after a transport failure\") from exc",
+        "measured_executable_line": false,
+        "measured_branch_origin": false
+      },
+      {
+        "file": "meco_news/collectors.py",
+        "line": 825,
+        "description": "partial worker frame is bounded",
+        "tests": [
+          "R19-ipc-bound"
+        ],
+        "current_source_line": "",
+        "measured_executable_line": false,
+        "measured_branch_origin": false
+      }
+    ]
+  },
+  "compose_syntax": "passed",
+  "docker_runtime": {
+    "state": "blocked",
+    "reason": "dockerDesktopLinuxEngine named pipe missing",
+    "required_context_verifier_exit_code": 1
+  },
+  "base_manifest": {
+    "state": "registry_resolved",
+    "digest": "sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f",
+    "version_annotation": "3.14.7-slim-bookworm"
+  },
+  "review_probes": {
+    "abandoned_first_delivery_health": {
+      "healthy": true,
+      "reasons": [],
+      "state": "collecting"
+    },
+    "concurrent_backup_lock_owners": {
+      "first_held": true,
+      "marker_owner": "first",
+      "second_held": true
+    },
+    "corrupt_database_status_cli": {
+      "actual_file_exists": true,
+      "exit_code": 0,
+      "reported_state": "missing"
+    },
+    "destination_revert_still_blocked": {
+      "changed": "needs_attention",
+      "documented_resolution": "InvalidTransition: only an ambiguous or explicitly retry-safe terminal chunk can be resolved",
+      "reverted": "needs_attention",
+      "send_calls": 0
+    },
+    "expired_retry_still_sends": {
+      "budget_exhausted_before_run": true,
+      "outcome": "completed",
+      "send_calls": 1
+    },
+    "fictional_critical_branch_passes": {
+      "missing": [],
+      "passed": true,
+      "registered": 1,
+      "unknown": []
+    },
+    "fictitious_signature_passes": {
+      "failures": [],
+      "passed": true,
+      "signature": {
+        "state": "signed"
+      }
+    },
+    "lease_budget_validation": {
+      "accepted_lease_ttl": 65,
+      "collection_cycle_budget": 120,
+      "outcome": "failed_terminal",
+      "persisted_state": "collecting",
+      "send_calls": 0,
+      "simulated_collection_seconds": 70
+    },
+    "malformed_frozen_input_cli": {
+      "exit_code": 1,
+      "log_created": false,
+      "stdout": "",
+      "traceback": true
+    },
+    "restore_process_death_loses_authority": {
+      "child_exit": 73,
+      "deliveries_after_normal_reopen": 0,
+      "rollback_file_retained": true,
+      "target_missing_after_crash": true
+    },
+    "restore_replays_acknowledged": {
+      "duplicate_send_calls": 1,
+      "history_rows": 1,
+      "outcome": "completed",
+      "restored_delivery": "prepared"
+    },
+    "spawned_worker_log_redaction": {
+      "process_exit": 0,
+      "stderr_has_traceback": true,
+      "synthetic_password_visible_in_stderr": true
+    }
+  },
+  "source_manifest_sha256": "8bd19e521c1c4734c80efd7f4656777b32ceb8ef5d4d99216e50db52a95d8896",
+  "manifest_files": 83,
+  "limitations": [
+    "No target container execution",
+    "No live Telegram sends",
+    "No target scheduler installation",
+    "No host power-loss test",
+    "No remote CI/protection verification",
+    "No complete secret-history or dependency/image vulnerability scan"
+  ]
+}
