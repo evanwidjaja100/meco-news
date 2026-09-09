@@ -26,6 +26,14 @@ This is an implementation checkpoint, not a closure certificate. Code, tests, an
 - Local re-verification on this checkout: 603 tests green across 16 batches (skipped=1 in one batch); Ruff and strict mypy (22 modules) clean. No source changes since the green CI build; only this ledger update follows.
 - Unchanged blockers: signature trust-root decision, exact-candidate Docker/target evidence, target-host reports, human approvals, shadow/canary/rollback rehearsal, and 72-hour observation. Decision stays **NO-GO**.
 
+## 2026-09-09 update (main @ 997031f, PR #21 open)
+
+- Post-merge CI green through PR #20 (run 34303202935 completed success). PR #20 merged a PROPOSED signature trust-root draft (Sigstore keyless recommended vs offline cosign) with the require-signature gate unchanged and fail-closed.
+- Secret-hygiene sweep: no literal tokens or keys in the tree; Group 5 canary stays split; only the .env.example template.
+- Adversarial spot-probes needed no code change: numeric-IP URL forms fail closed at the resolution layer with pinned connect, DTD/entity input is rejected as xml_dtd_disallowed across utf-8/16/32, Telegram uses the literal middot.
+- New C4.5 proof in this PR (tests/test_c45_determinism.py): all 24 merge permutations agree on fingerprints and stats, caller-owned items are unmutated and unaliased, and the proof passes in subprocesses under PYTHONHASHSEED 0 and 42.
+- Decision stays NO-GO.
+
 ## Verified local facts
 
 - 509 tests collected; the fresh full `pytest` suite passed.

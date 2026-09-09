@@ -10,6 +10,8 @@
 - CI release evidence (PR #16): every `package` build generates `dist/sbom.json`, binds it into `dist/provenance.json`, and verifies with `--require-sbom`. Fixed the `scripts/generate-sbom.py` default timestamp to `datetime.now(UTC)` (codebase spelling; the `datetime.datetime.UTC` attribute does not exist on this matrix) with a regression test covering the no-`--timestamp` path.
 
 - Ledger (PR #17/PR #18): PR #17 records the PR #15/PR #16 release-process entries; PR #18 records the CI build-context probe evidence in the readiness status. No behavior change; release decision remains NO-GO.
+- Ledger (PR #19/PR #20): PR #19 records the PR #17/PR #18 entries and the post-merge green runs; PR #20 adds a PROPOSED signature trust-root decision draft (Options A/B) for owner signature with the --require-signature gate unchanged and fail-closed. No behavior change; release decision remains NO-GO.
+- Determinism proof (PR #21): new tests/test_c45_determinism.py checks all 24 input permutations of a four-item merge fixture for identical fingerprints and stats, proves caller-owned items are unmutated and unaliased, and replays the proof in subprocesses under PYTHONHASHSEED 0 and 42. No behavior change.
 
 ## 2.0.0 - production-readiness implementation
 
