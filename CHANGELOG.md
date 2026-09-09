@@ -9,6 +9,8 @@
 - Release process (PR #15): the offline gates in `docs/release.md` now generate the SBOM and verify attached provenance (`--sbom-report` / `--require-sbom`); the readiness status carries the verified 2026-09-09 delta.
 - CI release evidence (PR #16): every `package` build generates `dist/sbom.json`, binds it into `dist/provenance.json`, and verifies with `--require-sbom`. Fixed the `scripts/generate-sbom.py` default timestamp to `datetime.now(UTC)` (codebase spelling; the `datetime.datetime.UTC` attribute does not exist on this matrix) with a regression test covering the no-`--timestamp` path.
 
+- Ledger (PR #17/PR #18): PR #17 records the PR #15/PR #16 release-process entries; PR #18 records the CI build-context probe evidence in the readiness status. No behavior change; release decision remains NO-GO.
+
 ## 2.0.0 - production-readiness implementation
 
 - Added typed strict configuration and safe CLI/preflight/status/health/backup modes.
