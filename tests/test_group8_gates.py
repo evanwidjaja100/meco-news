@@ -208,6 +208,56 @@ class ProvenanceSignatureTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertIn("context:mismatch", result["failures"])
 
+    def test_attached_sbom_verifies_when_required(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "candidate.whl"
+            artifact.write_bytes(b"candidate-bytes")
+            sbom = root / "sbom.json"
+            sbom.write_text("{}", encoding="utf-8")
+            document = provenance.create_provenance(root, root / "provenance.json", [artifact], sbom_report=sbom)
+            result = provenance.verify_provenance(document, require_sbom=True)
+        self.assertTrue(result["passed"], result["failures"])
+        self.assertEqual(result["failures"], [])
+
+    def test_missing_sbom_fails_only_when_required(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "candidate.whl"
+            artifact.write_bytes(b"candidate-bytes")
+            document = provenance.create_provenance(root, root / "provenance.json", [artifact])
+            gated = provenance.verify_provenance(document, require_sbom=True)
+            plain = provenance.verify_provenance(document)
+        self.assertFalse(gated["passed"])
+        self.assertIn("sbom:not_attached", gated["failures"])
+        self.assertTrue(plain["passed"], plain["failures"])
+
+    def test_tampered_sbom_fails_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "candidate.whl"
+            artifact.write_bytes(b"candidate-bytes")
+            sbom = root / "sbom.json"
+            sbom.write_text("{}", encoding="utf-8")
+            document = provenance.create_provenance(root, root / "provenance.json", [artifact], sbom_report=sbom)
+            sbom.write_text("{\"changed\": true}", encoding="utf-8")
+            result = provenance.verify_provenance(document, require_sbom=True)
+        self.assertFalse(result["passed"])
+        self.assertIn("sbom:mismatch", result["failures"])
+
+    def test_removed_sbom_file_is_reported_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "candidate.whl"
+            artifact.write_bytes(b"candidate-bytes")
+            sbom = root / "sbom.json"
+            sbom.write_text("{}", encoding="utf-8")
+            document = provenance.create_provenance(root, root / "provenance.json", [artifact], sbom_report=sbom)
+            sbom.unlink()
+            result = provenance.verify_provenance(document, require_sbom=True)
+        self.assertFalse(result["passed"])
+        self.assertIn("sbom:missing", result["failures"])
+
     def test_non_list_artifacts_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = _write(

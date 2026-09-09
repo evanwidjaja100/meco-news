@@ -63,7 +63,13 @@ def _working_tree_fingerprint(root: Path) -> str:
     return digest.hexdigest()
 
 
-def create_provenance(root: str | Path, output: str | Path, artifacts: list[str | Path], context_report: str | Path | None = None) -> Path:
+def create_provenance(
+    root: str | Path,
+    output: str | Path,
+    artifacts: list[str | Path],
+    context_report: str | Path | None = None,
+    sbom_report: str | Path | None = None,
+) -> Path:
     repository = Path(root).resolve()
     files = [Path(value).resolve() for value in artifacts]
     missing = [str(path) for path in files if not path.is_file()]
@@ -76,6 +82,12 @@ def create_provenance(root: str | Path, output: str | Path, artifacts: list[str 
         if not context_path.is_file():
             raise FileNotFoundError(str(context_path))
         context_record = {"state": "provided", "path": str(context_path), "sha256": _hash(context_path)}
+    sbom_record: dict[str, Any] = {"state": "not_attached", "required_for_promotion": True}
+    if sbom_report:
+        sbom_path = Path(sbom_report).resolve()
+        if not sbom_path.is_file():
+            raise FileNotFoundError(str(sbom_path))
+        sbom_record = {"state": "attached", "path": str(sbom_path), "sha256": _hash(sbom_path)}
     payload = {
         "schema_version": 1,
         "source": {
@@ -89,7 +101,7 @@ def create_provenance(root: str | Path, output: str | Path, artifacts: list[str 
         "python_support": ">=3.12,<3.15",
         "schema_compatibility": "application-enforced current schema",
         "signature": {"state": "not_signed", "required_for_promotion": True},
-        "sbom": {"state": "not_attached", "required_for_promotion": True},
+        "sbom": sbom_record,
     }
     target = Path(output).resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -112,7 +124,24 @@ def _context_failures(raw: dict[str, Any]) -> list[str]:
     return []
 
 
-def verify_provenance(path: str | Path, *, require_signature: bool = False) -> dict[str, Any]:
+def _sbom_failures(raw: dict[str, Any]) -> list[str]:
+    """Check that an attached SBOM still matches its record."""
+
+    sbom = raw.get("sbom", {})
+    if not isinstance(sbom, dict) or sbom.get("state") != "attached":
+        return []
+    candidate = Path(str(sbom.get("path", "")))
+    if not candidate.is_file():
+        return ["sbom:missing"]
+    expected = sbom.get("sha256", "")
+    if not expected or _hash(candidate) != expected:
+        return ["sbom:mismatch"]
+    return []
+
+
+def verify_provenance(
+    path: str | Path, *, require_signature: bool = False, require_sbom: bool = False
+) -> dict[str, Any]:
     target = Path(path).resolve()
     raw = json.loads(target.read_text(encoding="utf-8"))
     if not isinstance(raw, dict) or raw.get("schema_version") != 1:
@@ -130,6 +159,12 @@ def verify_provenance(path: str | Path, *, require_signature: bool = False) -> d
         artifact = Path(str(record.get("path", "")))
         if not artifact.is_file() or _hash(artifact) != record.get("sha256"):
             failures.append(str(artifact))
+    if require_sbom:
+        sbom = raw.get("sbom", {})
+        if not isinstance(sbom, dict) or sbom.get("state") != "attached":
+            failures.append("sbom:not_attached")
+        else:
+            failures.extend(_sbom_failures(raw))
     if require_signature:
         failures.extend(_context_failures(raw))
         signature = raw.get("signature", {})
@@ -142,7 +177,12 @@ def verify_provenance(path: str | Path, *, require_signature: bool = False) -> d
             # Signature-gated promotion stays failed until an external
             # verifier supplies verified results out of band.
             failures.append("signature:unverifiable")
-    return {"passed": not failures, "failures": failures, "signature": raw.get("signature", {})}
+    return {
+        "passed": not failures,
+        "failures": failures,
+        "signature": raw.get("signature", {}),
+        "sbom": raw.get("sbom", {}),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -151,16 +191,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", required=True)
     parser.add_argument("--artifact", action="append", default=[])
     parser.add_argument("--context-report")
+    parser.add_argument("--sbom-report")
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--require-signature", action="store_true")
+    parser.add_argument("--require-sbom", action="store_true")
     args = parser.parse_args(argv)
     try:
         if args.verify:
-            report = verify_provenance(args.output, require_signature=args.require_signature)
+            report = verify_provenance(
+                args.output, require_signature=args.require_signature, require_sbom=args.require_sbom
+            )
         else:
             if not args.artifact:
                 raise ValueError("--artifact is required when creating provenance")
-            path = create_provenance(args.root, args.output, args.artifact, args.context_report)
+            path = create_provenance(
+                args.root, args.output, args.artifact, args.context_report, args.sbom_report
+            )
             report = {"passed": True, "provenance": str(path)}
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         print(json.dumps({"passed": False, "error_class": type(exc).__name__}, sort_keys=True))
