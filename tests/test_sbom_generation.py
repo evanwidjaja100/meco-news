@@ -53,6 +53,27 @@ class SbomGenerationTests(unittest.TestCase):
         second = sbom.build_sbom("meco-news", "0.0.0-test", locks, "2026-09-09T00:00:00Z")
         self.assertEqual(first, second)
 
+    def test_main_defaults_to_current_utc_timestamp(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "sbom.json"
+            code = sbom.main(
+                [
+                    "--root",
+                    str(ROOT),
+                    "--build-lock",
+                    str(ROOT / "requirements-build.lock"),
+                    "--dev-lock",
+                    str(ROOT / "requirements-dev.lock"),
+                    "--output",
+                    str(target),
+                ]
+            )
+            self.assertEqual(code, 0)
+            document = json.loads(target.read_text(encoding="utf-8"))
+            stamp = document["metadata"]["timestamp"]
+            self.assertTrue(stamp.endswith("Z"), stamp)
+            self.assertTrue(document["components"], "default run must record the locked components")
+
     def test_malformed_locks_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
