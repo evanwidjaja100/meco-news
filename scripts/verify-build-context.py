@@ -144,7 +144,9 @@ def _write_canaries(context: Path, token: str) -> tuple[list[Path], Path, str]:
 
 def _write_probe_dockerfile(context: Path) -> Path:
     probe = context / "Dockerfile.meco-context-probe"
-    probe.write_text("FROM scratch\nCOPY . /context\n", encoding="utf-8")
+    # The explicit CMD keeps `docker create` working on daemons that refuse
+    # scratch images without a configured command; export only reads bytes.
+    probe.write_text("FROM scratch\nCOPY . /context\nCMD [\"/bin/true\"]\n", encoding="utf-8")
     return probe
 
 
