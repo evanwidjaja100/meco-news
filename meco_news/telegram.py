@@ -359,7 +359,9 @@ def validate_message(text: str, *, max_units: int = DEFAULT_MESSAGE_UNITS, max_b
     try:
         parser.feed(text)
         parser.close()
-    except (TypeError, ValueError) as exc:
+    # AssertionError covers stdlib HTMLParser internals that reject hostile
+    # markup by raising on some versions (e.g. marked sections).
+    except (TypeError, ValueError, AssertionError) as exc:
         raise ValueError("Telegram message HTML could not be parsed") from exc
     if parser.error:
         raise ValueError(f"Telegram message HTML is invalid: {parser.error}")

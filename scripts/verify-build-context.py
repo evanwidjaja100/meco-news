@@ -17,6 +17,7 @@ import argparse
 import contextlib
 import fnmatch
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -107,6 +108,8 @@ def _run(command: list[str], *, cwd: Path, timeout: int) -> subprocess.Completed
 
 
 def _docker_availability(root: Path) -> tuple[str, str]:
+    if os.getenv("MECO_DISABLE_DOCKER_PROBE"):
+        return "unavailable", "docker probe disabled by MECO_DISABLE_DOCKER_PROBE"
     try:
         result = _run(["docker", "version", "--format", "{{.Server.Version}}"], cwd=root, timeout=15)
     except FileNotFoundError:

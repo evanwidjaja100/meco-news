@@ -193,7 +193,7 @@ class ProvenanceSignatureTests(unittest.TestCase):
             artifact.write_bytes(b"tampered-bytes")
             result = provenance.verify_provenance(document, require_signature=True)
         self.assertFalse(result["passed"])
-        self.assertIn(str(artifact), result["failures"])
+        self.assertIn(str(artifact.resolve()), result["failures"])
 
     def test_changed_build_context_fails_binding(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

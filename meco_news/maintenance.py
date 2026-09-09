@@ -533,7 +533,10 @@ class MaintenanceContext:
 
 def runtime_dir(db_path: str | Path) -> Path:
     """Directory holding one marker file per live runtime holder."""
-    return Path(f"{Path(db_path)}" + RUNTIME_DIR_SUFFIX)
+    # Resolved so 8.3 short-name aliases on Windows share one directory:
+    # otherwise writers and readers could use different sibling dirs and
+    # mutual exclusion would silently stop working.
+    return Path(f"{Path(db_path).resolve()}" + RUNTIME_DIR_SUFFIX)
 
 def _read_runtime_holder(path: Path) -> dict[str, Any] | None:
     try:

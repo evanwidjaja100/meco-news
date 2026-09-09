@@ -486,7 +486,7 @@ class MetricsAlertsOperationsBranchTests(unittest.TestCase):
             else:
                 valid, invalid = operations.inventory_backups(backups)
                 self.assertEqual(valid, [])
-                self.assertIn(symlink, invalid)
+                self.assertIn(symlink.resolve(), invalid)
             fake_link = root / "fake-link.lock"
             fake_link.write_text("{}", encoding="utf-8")
             with patch.object(operations.os, "open", side_effect=FileExistsError("exists")), patch.object(

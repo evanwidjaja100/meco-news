@@ -16,14 +16,17 @@ from pathlib import Path
 
 
 def _run_verifier(root, *args):
-    """Run the verifier with Docker hidden so the blocked path is deterministic.
+    """Run the verifier with the Docker probe disabled so results are hermetic.
 
     CI runners may provide a live Docker daemon while developer machines do
-    not; hiding the executable keeps these tests hermetic on every host.
+    not.  MECO_DISABLE_DOCKER_PROBE forces the docker-unavailable branch on
+    every host; PATH scrubbing alone cannot hide executables on Windows, so
+    the knob (not the scrub) is the authoritative mechanism here.
     """
     with tempfile.TemporaryDirectory(prefix="meco-no-docker-") as bindir:
-        env = dict(os.environ)
+        env = {key: value for key, value in os.environ.items() if key.lower() != "path"}
         env["PATH"] = bindir
+        env["MECO_DISABLE_DOCKER_PROBE"] = "1"
         return subprocess.run(
             [sys.executable, "scripts/verify-build-context.py", "--root", str(root), *args],
             capture_output=True,
@@ -33,6 +36,9 @@ def _run_verifier(root, *args):
 
 
 def _docker_available():
+    # The disposable probe builds a Linux ``FROM scratch`` image, which a
+    # Windows-containers daemon rejects outright.  Such hosts skip the live
+    # probe like daemon-less hosts instead of failing the positive control.
     if shutil.which("docker") is None:
         return False
     try:
@@ -42,9 +48,17 @@ def _docker_available():
             text=True,
             timeout=15,
         )
+        ostype = subprocess.run(
+            ["docker", "version", "--format", "{{.Server.OSType}}"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
     except (OSError, subprocess.TimeoutExpired):
         return False
-    return probe.returncode == 0
+    if probe.returncode != 0 or ostype.returncode != 0:
+        return False
+    return ostype.stdout.strip().casefold() == "linux"
 
 
 class TestContext(unittest.TestCase):

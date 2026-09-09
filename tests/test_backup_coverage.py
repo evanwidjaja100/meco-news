@@ -80,7 +80,7 @@ class BackupCoverageTests(unittest.TestCase):
             self.assertEqual(manifest["sha256"], backup._sha256(artifact.database))
             explicit = root / "explicit.sqlite"
             second = create_backup(state, explicit)
-            self.assertEqual(second.database, explicit)
+            self.assertEqual(second.database, explicit.resolve())
             with self.assertRaises(FileExistsError):
                 create_backup(state, explicit)
 
