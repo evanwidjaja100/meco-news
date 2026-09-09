@@ -6,6 +6,8 @@
 - Build-context verifier: probe image carries a CMD so `docker create` works on scratch; scan tarballs stay outside the probe build context; dockerignore matcher handles dotfiles and bare directory patterns; `sys.platform` guards for Windows-only APIs.
 - Release evidence (PR #13): deterministic CycloneDX 1.5 SBOM generator from the hash-locked build/dev inputs (`scripts/generate-sbom.py`, fixed-timestamp reproducible); provenance attach/verify gains an independent `--require-sbom` flag (`sbom:missing` / `sbom:mismatch` / `sbom:not_attached` fail closed). The signature gate stays fail-closed (`signature:unverifiable`) until a trust root is approved and wired.
 - Release decision remains NO-GO; supervised non-production pilot only (see `PRODUCTION_READINESS_CLOSURE_IMPLEMENTATION_PLAN.md`).
+- Release process (PR #15): the offline gates in `docs/release.md` now generate the SBOM and verify attached provenance (`--sbom-report` / `--require-sbom`); the readiness status carries the verified 2026-09-09 delta.
+- CI release evidence (PR #16): every `package` build generates `dist/sbom.json`, binds it into `dist/provenance.json`, and verifies with `--require-sbom`. Fixed the `scripts/generate-sbom.py` default timestamp to `datetime.now(UTC)` (codebase spelling; the `datetime.datetime.UTC` attribute does not exist on this matrix) with a regression test covering the no-`--timestamp` path.
 
 ## 2.0.0 - production-readiness implementation
 
