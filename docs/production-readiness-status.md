@@ -15,6 +15,11 @@ This is an implementation checkpoint, not a closure certificate. Code, tests, an
 - Remote CI is green on protected `main` (quality, package, container, coverage-and-critical-branches, unit ubuntu+windows py3.12-3.14) with a GitGuardian pass.
 - Unchanged blockers: signature trust-root decision, exact-candidate Docker/target evidence, target-host reports, human approvals, shadow/canary/rollback rehearsal, and 72-hour observation. Decision stays **NO-GO**.
 
+## 2026-09-09 update (main @ 447d3e9)
+
+- Build-context probe evidence: the CI `quality` job runs `scripts/verify-build-context.py --require-docker` on ubuntu runners, which exits 2 (failing the job) when Docker is unavailable. Post-merge run `34301017230` logs `build-context sentinel passed; actual Docker context/layer/history/runtime verification passed`, i.e. the disposable positive-control canary was detected and negative controls excluded on that build. Only `CHANGELOG.md` changed since, so the result carries over. This does not replace exact-candidate binding (F-024/C6.5) or target evidence; local Windows verification stays `blocked` with no Linux daemon.
+- PR #16 merged: per-build SBOM/provenance enforcement in the `package` job plus the `datetime.now(UTC)` default-timestamp fix with regression coverage. PR #17 merged: changelog follow-up. Decision stays **NO-GO**.
+
 ## Verified local facts
 
 - 509 tests collected; the fresh full `pytest` suite passed.
