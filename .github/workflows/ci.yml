@@ -73,6 +73,11 @@ jobs:
         run: python -m pip install --require-hashes -r requirements-dev.lock
       - name: Build wheel and source distribution
         run: python -m build --no-isolation
+      - name: Generate SBOM and bind release provenance
+        run: |
+          python scripts/generate-sbom.py --root . --build-lock requirements-build.lock --dev-lock requirements-dev.lock --output dist/sbom.json
+          python scripts/release-provenance.py --root . --output dist/provenance.json --artifact "$(find dist -name '*.whl' -print -quit)" --artifact "$(find dist -name '*.tar.gz' -print -quit)" --sbom-report dist/sbom.json
+          python scripts/release-provenance.py --output dist/provenance.json --verify --require-sbom
       - name: Prepare isolated sdist build wheelhouse
         run: "python -m pip download --only-binary=:all: --require-hashes --dest build-tools -r requirements-build.lock"
       - name: Installed wheel smoke test outside checkout
