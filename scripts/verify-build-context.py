@@ -67,9 +67,17 @@ def _patterns(root: Path) -> list[str]:
 
 
 def _dockerignored(relative: str, patterns: list[str]) -> bool:
-    """Match the known canary corpus; Docker remains authoritative."""
+    """Match the known canary corpus; Docker remains authoritative.
 
-    relative = relative.replace("\\", "/").lstrip("./")
+    Leading ``./`` segments are removed without mangling dotfile names, and
+    a bare pattern naming a directory also excludes everything beneath it,
+    mirroring Docker's own prefix behavior for excluded directories.
+    """
+
+    relative = relative.replace("\\", "/")
+    while relative.startswith("./"):
+        relative = relative[2:]
+    relative = relative.lstrip("/")
     ignored = False
     for raw in patterns:
         negate = raw.startswith("!")
@@ -79,6 +87,12 @@ def _dockerignored(relative: str, patterns: list[str]) -> bool:
         pattern = pattern.rstrip("/")
         if directory:
             matched = relative == pattern or relative.startswith(pattern + "/")
+        elif "/" not in pattern and not any(char in pattern for char in "*?["):
+            matched = (
+                relative == pattern
+                or relative.startswith(pattern + "/")
+                or fnmatch.fnmatchcase(Path(relative).name, pattern)
+            )
         elif "/" not in pattern:
             matched = fnmatch.fnmatchcase(Path(relative).name, pattern)
         else:
