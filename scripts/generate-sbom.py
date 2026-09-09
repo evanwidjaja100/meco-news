@@ -13,7 +13,7 @@ locks always produce the same SBOM bytes for a fixed timestamp.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import UTC, datetime
 import json
 import re
 import uuid
@@ -138,7 +138,7 @@ def main(argv: list[str] | None = None) -> int:
         for lock_path, _ in locks:
             if not lock_path.is_file():
                 raise FileNotFoundError(str(lock_path))
-        timestamp = args.timestamp or datetime.now(datetime.UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+        timestamp = args.timestamp or datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
         if not timestamp.strip():
             raise ValueError("timestamp must be nonempty")
         document = build_sbom(args.package, _read_package_version(root), locks, timestamp)
