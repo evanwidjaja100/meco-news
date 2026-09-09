@@ -169,7 +169,12 @@ def _build_probe(context: Path, dockerfile: Path, tag: str, *, timeout: int) -> 
         raise VerificationFailure(f"docker probe build failed: {detail[:500]}")
 
 
-def _scan_image(tag: str, context: Path, marker: str, *, timeout: int) -> dict[str, bool]:
+def _scan_image(tag: str, context: Path, marker: str, *, artifacts: Path, timeout: int) -> dict[str, bool]:
+    """Inspect image output, writing exported tarballs outside the build context.
+
+    Scan artifacts carry the canary marker by design; keeping them out of
+    ``context`` prevents a later probe build from COPYing them back in.
+    """
     """Inspect metadata, history, layer tar, and exported runtime bytes."""
 
     image_inspect = _run(["docker", "image", "inspect", tag], cwd=context, timeout=timeout)
@@ -179,7 +184,7 @@ def _scan_image(tag: str, context: Path, marker: str, *, timeout: int) -> dict[s
     if marker in image_inspect.stdout + image_inspect.stderr or marker in history.stdout + history.stderr:
         raise VerificationFailure("synthetic canary appeared in image metadata or history")
 
-    saved = context / "image.tar"
+    saved = artifacts / f"{tag}-image.tar"
     save = _run(["docker", "image", "save", "--output", str(saved), tag], cwd=context, timeout=timeout)
     if save.returncode != 0:
         raise VerificationFailure("docker image layer export failed")
@@ -190,7 +195,7 @@ def _scan_image(tag: str, context: Path, marker: str, *, timeout: int) -> dict[s
     created = _run(["docker", "create", "--name", container, tag], cwd=context, timeout=timeout)
     if created.returncode != 0:
         raise VerificationFailure("docker runtime container creation failed")
-    runtime_tar = context / "runtime.tar"
+    runtime_tar = artifacts / f"{tag}-runtime.tar"
     try:
         exported = _run(["docker", "export", "--output", str(runtime_tar), container], cwd=context, timeout=timeout)
         if exported.returncode != 0:
@@ -217,6 +222,8 @@ def _check_actual_context(root: Path, *, timeout: int = 120) -> dict[str, object
     with tempfile.TemporaryDirectory(prefix="meco-build-context-") as temporary:
         context = Path(temporary) / "context"
         context.mkdir()
+        artifacts = Path(temporary) / "artifacts"
+        artifacts.mkdir()
         shutil.copy2(root / ".dockerignore", context / ".dockerignore")
         negative, positive, marker = _write_canaries(context, uuid.uuid4().hex)
         patterns = _patterns(context)
@@ -232,7 +239,7 @@ def _check_actual_context(root: Path, *, timeout: int = 120) -> dict[str, object
         negative_tag = f"meco-context-negative-{uuid.uuid4().hex[:12]}"
         try:
             _build_probe(context, probe, positive_tag, timeout=timeout)
-            positive_scan = _scan_image(positive_tag, context, marker, timeout=timeout)
+            positive_scan = _scan_image(positive_tag, context, marker, artifacts=artifacts, timeout=timeout)
             raise VerificationFailure("positive-control canary was not observed in image output")
         except VerificationFailure as exc:
             # The positive control is expected to be detected as a leak. Any
@@ -245,7 +252,7 @@ def _check_actual_context(root: Path, *, timeout: int = 120) -> dict[str, object
         positive.unlink(missing_ok=True)
         try:
             _build_probe(context, probe, negative_tag, timeout=timeout)
-            negative_scan = _scan_image(negative_tag, context, marker, timeout=timeout)
+            negative_scan = _scan_image(negative_tag, context, marker, artifacts=artifacts, timeout=timeout)
         finally:
             _remove_image(negative_tag, root)
         return {
