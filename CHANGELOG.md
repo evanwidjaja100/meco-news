@@ -12,6 +12,8 @@
 - Ledger (PR #17/PR #18): PR #17 records the PR #15/PR #16 release-process entries; PR #18 records the CI build-context probe evidence in the readiness status. No behavior change; release decision remains NO-GO.
 - Ledger (PR #19/PR #20): PR #19 records the PR #17/PR #18 entries and the post-merge green runs; PR #20 adds a PROPOSED signature trust-root decision draft (Options A/B) for owner signature with the --require-signature gate unchanged and fail-closed. No behavior change; release decision remains NO-GO.
 - Determinism proof (PR #21): new tests/test_c45_determinism.py checks all 24 input permutations of a four-item merge fixture for identical fingerprints and stats, proves caller-owned items are unmutated and unaliased, and replays the proof in subprocesses under PYTHONHASHSEED 0 and 42. No behavior change.
+- Ledger (PR #21): PR #21 merged to main @ 7da4c19; post-merge run 34303969200 completed success on protected main. No behavior change; release decision remains NO-GO.
+- Worker-isolation proof (PR #22): new tests/test_c44_worker_isolation.py runs real spawn-context workers through _source_process_entry, proving a fast worker returns a typed SourceResult frame and exits 0, a hung worker is terminated and reaped with no survivors under mp.active_children(), and the next spawn succeeds. No behavior change.
 
 ## 2.0.0 - production-readiness implementation
 

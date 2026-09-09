@@ -34,6 +34,12 @@ This is an implementation checkpoint, not a closure certificate. Code, tests, an
 - New C4.5 proof in this PR (tests/test_c45_determinism.py): all 24 merge permutations agree on fingerprints and stats, caller-owned items are unmutated and unaliased, and the proof passes in subprocesses under PYTHONHASHSEED 0 and 42.
 - Decision stays NO-GO.
 
+## 2026-09-09 update (main @ 7da4c19, PR #22 open)
+
+- PR #21 merged to protected main (merge 7da4c19); post-merge run 34303969200 completed success (quality, package, container, coverage-and-critical-branches, unit ubuntu+windows py3.12-3.14, GitGuardian). No open PRs after the merge; worktree clean.
+- New C4.4 proof in this PR (tests/test_c44_worker_isolation.py): real spawn-context workers run through _source_process_entry and _terminate_worker. A fast worker returns a typed SourceResult frame and exits 0; a 60s hung worker is terminated and reaped with no survivors under mp.active_children(); the next spawn succeeds. This closes the real-process gap left by the fake-process supervisor corpus; no behavior change.
+- Decision stays NO-GO.
+
 ## Verified local facts
 
 - 509 tests collected; the fresh full `pytest` suite passed.
