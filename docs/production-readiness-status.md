@@ -82,6 +82,13 @@ This is an implementation checkpoint, not a closure certificate. Code, tests, an
 - Local re-verification on this checkout: full pytest run green, 617 tests (616 passed, 1 skipped, zero failures). The C4.1 +3 line shift stale-pinned the register mid-PR and the shipped-register unit test plus the coverage gate failed closed as designed before the 627 to 630 re-pin. No source changes since the green CI build; only this ledger update follows.
 - Decision stays NO-GO.
 
+## 2026-09-10 update (main @ d75d6e7, PR #31 open)
+
+- PR #30 merged to protected main (merge d75d6e7); post-merge run 34483151867 completed success (quality, package, container, coverage-and-critical-branches, unit ubuntu+windows py3.12-3.14, GitGuardian). No open PRs after the merge; worktree clean.
+- New C4.6 proof in the merged PR (tests/test_c46_omitted_history.py): an oversized digest-omitted item between two healthy siblings flows through build_digest into prepare_delivery; after every outbox chunk is accepted, the omitted fingerprint is absent from delivery_items, outbox payloads, and article_history while the included fingerprints map exactly and the delivery completes. No production code changed, so no register re-pin was needed.
+- Local re-verification on this checkout: full pytest run green, 618 tests (617 passed, 1 skipped, zero failures); ruff check and strict mypy (22 modules) clean. No source changes since the green CI build; only this ledger update follows.
+- Decision stays NO-GO.
+
 ## Verified local facts
 
 - 509 tests collected; the fresh full `pytest` suite passed.
