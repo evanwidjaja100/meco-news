@@ -101,6 +101,14 @@ This is an implementation checkpoint, not a closure certificate. Code, tests, an
 - Local re-verification on this checkout: full pytest run green, 618 tests (617 passed, 1 skipped, zero failures); ruff check and strict mypy (22 modules) clean. No source changes since the green CI build; only this ledger update follows.
 - Decision stays NO-GO.
 
+## 2026-09-10 update (main @ c9cb26a, PR #34 open)
+
+- New C5.1 command-terminal proof in this PR: `meco_news/app.py` adds `_finish_command` plus one `command` attempt lifecycle per operator/query mode (`config_show`, `preflight`, `preflight_online`, `status`, `healthcheck`, `metrics`, `backup`, `restore`, `resolve_chunk`, `migrate`, `test_telegram`, `discover_chat`) so every command path emits exactly one `attempt_terminal` record with its exit code; delivery/daemon paths keep their own records.
+- New `tests/test_c51_command_terminal.py` (13 tests) asserts exactly one terminal record per command path with the expected outcome, machine-mode stdout stays exactly one JSON document, and covers config/preflight/status/metrics/healthcheck, backup/restore roundtrip plus failures, resolve success/failure, migrate applied/failed/unsupported, and telegram placeholder/mocked success/empty/failure cases.
+- `docs/monitoring.md` documents the command `attempt_terminal` outcomes and the retention floor (attempts/source observations >=90 days, article identity >=365 days; unresolved work never pruned).
+- Local verification on this checkout: full pytest green, 631 tests (630 passed, 1 skipped, zero failures); `ruff check meco_news tests scripts` clean; strict `mypy meco_news` clean (22 modules).
+- Decision stays NO-GO.
+
 ## Verified local facts
 
 - 509 tests collected; the fresh full `pytest` suite passed.
