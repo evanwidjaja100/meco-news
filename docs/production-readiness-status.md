@@ -52,6 +52,12 @@ This is an implementation checkpoint, not a closure certificate. Code, tests, an
 - Local re-verification on this checkout: full pytest run green, 609 tests (608 passed, 1 skipped, zero failures); Ruff and strict mypy (22 modules) clean. No source changes since the green CI build; only this ledger update follows.
 - Decision stays NO-GO.
 
+## 2026-09-10 update (main @ c91789b, PR #25 open)
+
+- PR #24 merged to protected main (merge c91789b); post-merge run 34475802001 completed success (quality, package, container, coverage-and-critical-branches, unit ubuntu+windows py3.12-3.14, GitGuardian). No open PRs after the merge; worktree clean.
+- New C4.3 proof in this PR (tests/test_c43_dtd_encodings.py): DOCTYPE payloads must raise xml_dtd_disallowed across 8 encodings (utf-8, utf-8-sig, utf-16/16-le/16-be, utf-32/32-le/32-be), entity-only payloads without DOCTYPE are rejected in a 3-encoding sample, and a healthy feed still parses. Converting the prior disposable probe sentence into a checked-in regression exposed a real ordering defect: C4.1 UTF-8 sanitization (errors="replace") ran before the DTD scan and misaligned the BOM-prefixed UTF-32 byte stream, so that case surfaced xml_parse_error instead of xml_dtd_disallowed. The scan block in _parse_xml_once now runs on the raw payload before sanitization; the payload was still fail-closed throughout (the stdlib parser never fetched external entities). New tests 3/3 green; neighbors (collector coverage, hostile-red, C4.2, C4.4) 27 passed; ruff check and mypy clean on touched files.
+- Decision stays NO-GO.
+
 ## Verified local facts
 
 - 509 tests collected; the fresh full `pytest` suite passed.

@@ -17,6 +17,8 @@
 - Ledger (PR #22): PR #22 merged to main @ 0eec0e5; post-merge run 34304755480 completed success on protected main. No behavior change; release decision remains NO-GO.
 - Numeric-IP proof (PR #23): new tests/test_c42_numeric_ip_forms.py locks in the fail-closed handling of obfuscated loopback spellings (decimal, hex, octal) hermetically. The classifier fails closed on every unparseable form, and the resolution layer rejects a glibc-style 127.0.0.1 answer with ssrf_address_class for each form under stubbed getaddrinfo. No behavior change.
 - Ledger (PR #23): PR #23 merged to main @ ef36379; post-merge run 34475045879 completed success on protected main. Full local pytest re-verified 609 tests (608 passed, 1 skipped, zero failures). No behavior change; release decision remains NO-GO.
+- Ledger (PR #24): PR #24 merged to main @ c91789b; post-merge run 34475802001 completed success on protected main. No behavior change; release decision remains NO-GO.
+- DTD proof (PR #25): new tests/test_c43_dtd_encodings.py converts the prior disposable DTD probe sentence into a checked-in C4.3 regression (DOCTYPE rejection with xml_dtd_disallowed across 8 encodings, entity-only variants, healthy-feed control). The test exposed a real ordering defect: C4.1 UTF-8 sanitization ran before the DTD scan and misaligned BOM-prefixed UTF-32 so it surfaced xml_parse_error; the scan now runs on the raw payload first in _parse_xml_once. Still fail-closed before and after; no behavior change beyond the accurate reason code.
 
 ## 2.0.0 - production-readiness implementation
 
