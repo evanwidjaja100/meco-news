@@ -19,6 +19,7 @@
 - Ledger (PR #23): PR #23 merged to main @ ef36379; post-merge run 34475045879 completed success on protected main. Full local pytest re-verified 609 tests (608 passed, 1 skipped, zero failures). No behavior change; release decision remains NO-GO.
 - Ledger (PR #24): PR #24 merged to main @ c91789b; post-merge run 34475802001 completed success on protected main. No behavior change; release decision remains NO-GO.
 - DTD proof (PR #25): new tests/test_c43_dtd_encodings.py converts the prior disposable DTD probe sentence into a checked-in C4.3 regression (DOCTYPE rejection with xml_dtd_disallowed across 8 encodings, entity-only variants, healthy-feed control). The test exposed a real ordering defect: C4.1 UTF-8 sanitization ran before the DTD scan and misaligned BOM-prefixed UTF-32 so it surfaced xml_parse_error; the scan now runs on the raw payload first in _parse_xml_once. Still fail-closed before and after; no behavior change beyond the accurate reason code. Re-pins the critical-branch register (collectors.py 625 to 627) for the resulting +2 line shift; the bounded-frame branch itself is untouched.
+- Ledger (PR #25): PR #25 merged to main @ 3cf2072; post-merge run 34477168065 completed success on protected main. Full local pytest re-verified 612 tests (611 passed, 1 skipped, zero failures). No behavior change; release decision remains NO-GO.
 
 ## 2.0.0 - production-readiness implementation
 
