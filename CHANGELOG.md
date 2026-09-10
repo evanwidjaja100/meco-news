@@ -16,6 +16,7 @@
 - Worker-isolation proof (PR #22): new tests/test_c44_worker_isolation.py runs real spawn-context workers through _source_process_entry, proving a fast worker returns a typed SourceResult frame and exits 0, a hung worker is terminated and reaped with no survivors under mp.active_children(), and the next spawn succeeds. No behavior change.
 - Ledger (PR #22): PR #22 merged to main @ 0eec0e5; post-merge run 34304755480 completed success on protected main. No behavior change; release decision remains NO-GO.
 - Numeric-IP proof (PR #23): new tests/test_c42_numeric_ip_forms.py locks in the fail-closed handling of obfuscated loopback spellings (decimal, hex, octal) hermetically. The classifier fails closed on every unparseable form, and the resolution layer rejects a glibc-style 127.0.0.1 answer with ssrf_address_class for each form under stubbed getaddrinfo. No behavior change.
+- Ledger (PR #23): PR #23 merged to main @ ef36379; post-merge run 34475045879 completed success on protected main. Full local pytest re-verified 609 tests (608 passed, 1 skipped, zero failures). No behavior change; release decision remains NO-GO.
 
 ## 2.0.0 - production-readiness implementation
 
