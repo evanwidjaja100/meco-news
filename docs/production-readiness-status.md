@@ -64,6 +64,12 @@ This is an implementation checkpoint, not a closure certificate. Code, tests, an
 - Local re-verification on this checkout: full pytest run green, 612 tests (611 passed, 1 skipped, zero failures); ruff check and mypy clean on touched files. The coverage gate failed closed mid-PR on a stale register pin (collectors.py 625) after the C4.3 +2 line shift and passed after re-pinning to the same bounded-frame branch at 627. No source changes since the green CI build; only this ledger update follows.
 - Decision stays NO-GO.
 
+## 2026-09-10 update (main @ df8ac9e, PR #27 open)
+
+- PR #26 merged to protected main (merge df8ac9e); post-merge run 34478574014 completed success (quality, package, container, coverage-and-critical-branches, unit ubuntu+windows py3.12-3.14, GitGuardian; one windows py3.14 job stalled ~15 min in its test step then recovered green on the unchanged commit, an infra flake). No open PRs after the merge; worktree clean.
+- Local re-verification on this checkout: full pytest run green, 612 tests (611 passed, 1 skipped, zero failures). No source changes since the green CI build; only this ledger update follows.
+- Decision stays NO-GO.
+
 ## Verified local facts
 
 - 509 tests collected; the fresh full `pytest` suite passed.
