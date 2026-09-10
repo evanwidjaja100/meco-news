@@ -76,6 +76,12 @@ This is an implementation checkpoint, not a closure certificate. Code, tests, an
 - New C4.1 proof in this PR (tests/test_c41_unicode_scalar.py): bidi overrides/isolates/marks are stripped from title/summary output, lone surrogates in title/link/summary quarantine invalid_unicode_scalar with the healthy sibling surviving, emoji/astral and combining marks are preserved, C0/C1 controls are stripped, and illegal-XML controls fail the document closed. Converting the probe into a checked-in regression exposed a real gap: bidi controls (U+202E et al.) passed into stored output; _CONTROL_RE now also strips U+200E/200F, U+202A-202E and U+2066-2069 (U+061C deliberately kept as legitimate text). New tests 5/5 green; neighbors (collector coverage, hostile-red, C4.3 DTD) 26 passed; ruff check and mypy clean on touched files. Follow-up: the +3 line shift stale-pinned the register (627, now a statement) and the shipped-register unit test plus the coverage gate failed closed as designed; re-pinned to 630, the same bounded-frame branch.
 - Decision stays NO-GO.
 
+## 2026-09-10 update (main @ 4cc6232, PR #29 open)
+
+- PR #28 merged to protected main (merge 4cc6232); post-merge run 34481004592 completed success (quality, package, container, coverage-and-critical-branches, unit ubuntu+windows py3.12-3.14, GitGuardian). No open PRs after the merge; worktree clean.
+- Local re-verification on this checkout: full pytest run green, 617 tests (616 passed, 1 skipped, zero failures). The C4.1 +3 line shift stale-pinned the register mid-PR and the shipped-register unit test plus the coverage gate failed closed as designed before the 627 to 630 re-pin. No source changes since the green CI build; only this ledger update follows.
+- Decision stays NO-GO.
+
 ## Verified local facts
 
 - 509 tests collected; the fresh full `pytest` suite passed.
