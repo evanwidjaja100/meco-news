@@ -67,6 +67,77 @@
       "tests": [
         "test_worker_entry_and_frame_failure_boundaries"
       ]
+    },
+    {
+      "file": "meco_news/models.py",
+      "line": 68,
+      "description": "unicode scalar violation quarantines at the model boundary",
+      "tests": [
+        "test_lone_surrogate_in_each_field_quarantines_with_healthy_sibling",
+        "test_valid_astral_emoji_and_combining_marks_preserved"
+      ]
+    },
+    {
+      "file": "meco_news/urls.py",
+      "line": 242,
+      "description": "cross-scheme redirect rejected before fetch",
+      "tests": [
+        "test_url_canonical_and_resolution_fail_closed"
+      ]
+    },
+    {
+      "file": "meco_news/collectors.py",
+      "line": 281,
+      "description": "raw-payload DTD/entity scan rejects before expansion",
+      "tests": [
+        "test_doctype_rejected_in_every_scanned_encoding",
+        "test_entity_reference_rejected_without_doctype",
+        "test_healthy_feed_still_parses"
+      ]
+    },
+    {
+      "file": "meco_news/collectors.py",
+      "line": 891,
+      "description": "worker memory_error frame propagates as MemoryError",
+      "tests": [
+        "test_supervisor_handles_invalid_partial_memory_and_start_failure"
+      ]
+    },
+    {
+      "file": "meco_news/collectors.py",
+      "line": 721,
+      "description": "live worker is terminated while an exited worker is left alone",
+      "tests": [
+        "test_spawned_fast_worker_returns_typed_result_and_exits",
+        "test_spawned_hang_worker_terminates_reaps_and_next_run_succeeds"
+      ]
+    },
+    {
+      "file": "meco_news/storage.py",
+      "line": 319,
+      "description": "legacy adoption completes only completed runs, never replays the rest",
+      "tests": [
+        "test_runner_adopts_legacy_v1_and_preserves_rows",
+        "test_runner_adopts_failed_legacy_run_without_replay"
+      ]
+    },
+    {
+      "file": "meco_news/ranking.py",
+      "line": 302,
+      "description": "fuzzy comparison budget exhausts closed with healthy retention",
+      "tests": [
+        "test_rank_quality_merge_and_selection_limits",
+        "test_all_24_permutations_agree"
+      ]
+    },
+    {
+      "file": "meco_news/telegram.py",
+      "line": 469,
+      "description": "unfittable first item is omitted while the header survives",
+      "tests": [
+        "test_first_item_oversized_is_omitted_but_header_survives",
+        "test_omitted_fingerprint_absent_from_delivery_and_sent_history"
+      ]
     }
   ]
 }
