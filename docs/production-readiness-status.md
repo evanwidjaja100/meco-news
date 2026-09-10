@@ -89,6 +89,12 @@ This is an implementation checkpoint, not a closure certificate. Code, tests, an
 - Local re-verification on this checkout: full pytest run green, 618 tests (617 passed, 1 skipped, zero failures); ruff check and strict mypy (22 modules) clean. No source changes since the green CI build; only this ledger update follows.
 - Decision stays NO-GO.
 
+## 2026-09-10 update (main @ e9f8558, PR #32 open)
+
+- New C4.7 checker proof in this PR: scripts/critical-branches.json grows from 8 to 16 entries so the reviewed gate enforces every C4.7 decision set (Unicode scalar/control, URL/DNS/redirect, XML DTD/entity, MemoryError, worker termination, identity migration, merge/fuzzy budgets, Telegram omission/sizing). Measured on the full-suite coverage run for this tree, the gate reports statement 93.124% (floor 90), branch 90.977% (floor 90), 16/16 critical branches, overall passed; every new entry has both outgoing arcs executed with none missing. Publisher classification is branchless by design (total-order sort key) and stays outcome-proven by the C4.5 direct-over-aggregator proof, as documented in the closure report.
+- New docs/reviews/2026-09-10-application-security-closure.md replays every CG4 probe as a checked-in regression (23 passed across the six probe files on this checkout) and records the decision-set table with residuals. No production code changed.
+- Decision stays NO-GO.
+
 ## Verified local facts
 
 - 509 tests collected; the fresh full `pytest` suite passed.
