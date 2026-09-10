@@ -14,6 +14,8 @@
 - Determinism proof (PR #21): new tests/test_c45_determinism.py checks all 24 input permutations of a four-item merge fixture for identical fingerprints and stats, proves caller-owned items are unmutated and unaliased, and replays the proof in subprocesses under PYTHONHASHSEED 0 and 42. No behavior change.
 - Ledger (PR #21): PR #21 merged to main @ 7da4c19; post-merge run 34303969200 completed success on protected main. No behavior change; release decision remains NO-GO.
 - Worker-isolation proof (PR #22): new tests/test_c44_worker_isolation.py runs real spawn-context workers through _source_process_entry, proving a fast worker returns a typed SourceResult frame and exits 0, a hung worker is terminated and reaped with no survivors under mp.active_children(), and the next spawn succeeds. No behavior change.
+- Ledger (PR #22): PR #22 merged to main @ 0eec0e5; post-merge run 34304755480 completed success on protected main. No behavior change; release decision remains NO-GO.
+- Numeric-IP proof (PR #23): new tests/test_c42_numeric_ip_forms.py locks in the fail-closed handling of obfuscated loopback spellings (decimal, hex, octal) hermetically. The classifier fails closed on every unparseable form, and the resolution layer rejects a glibc-style 127.0.0.1 answer with ssrf_address_class for each form under stubbed getaddrinfo. No behavior change.
 
 ## 2.0.0 - production-readiness implementation
 
