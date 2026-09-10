@@ -24,6 +24,8 @@
 - Ledger (PR #27): PR #27 merged to main @ 6dd99fc; post-merge run 34479713900 completed success on protected main. No behavior change; release decision remains NO-GO.
 - Ledger (PR #26): PR #26 merged to main @ df8ac9e; post-merge run 34478574014 completed success on protected main. Full local pytest re-verified 612 tests (611 passed, 1 skipped, zero failures). No behavior change; release decision remains NO-GO.
 - Ledger (PR #25): PR #25 merged to main @ 3cf2072; post-merge run 34477168065 completed success on protected main. Full local pytest re-verified 612 tests (611 passed, 1 skipped, zero failures). No behavior change; release decision remains NO-GO.
+- Omitted-history proof (PR #30): new tests/test_c46_omitted_history.py closes the C4.6 final-payload gap (F-019) as a checked-in regression: an oversized digest-omitted item between two healthy siblings flows through build_digest into prepare_delivery, every outbox chunk is accepted, and the omitted fingerprint is absent from delivery_items, outbox payloads, and article_history while the included fingerprints map exactly and the delivery completes. No production code changed.
+- Ledger (PR #30): PR #30 merged to main @ d75d6e7; post-merge run 34483151867 completed success on protected main. Full local pytest re-verified 618 tests (617 passed, 1 skipped, zero failures). No behavior change; release decision remains NO-GO.
 
 ## 2.0.0 - production-readiness implementation
 
