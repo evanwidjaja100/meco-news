@@ -271,11 +271,8 @@ def _parse_xml_once(
 ) -> list[NewsItem]:
     if len(payload) > limits.response_bytes:
         raise SourceDataError("response_too_large")
-    # C4.1: sanitize invalid UTF-8 (e.g., lone surrogate bytes) before parsing so one bad item doesn't abort the whole feed
-    try:
-        payload.decode("utf-8")
-    except UnicodeDecodeError:
-        payload = payload.decode("utf-8", errors="replace").encode("utf-8")
+    # This runs on the raw payload before C4.1 UTF-8 sanitization: sanitizing first can misalign
+    # non-UTF-8 multibyte structure (e.g. a UTF-32 BOM) and hide a DTD from every decoder.
     # ponytail: encoding-independent DTD/entity rejection — C4.3 requires parser-level prohibition before expansion
     lowered = payload.lower()
     if b"<!doctype" in lowered or b"<!entity" in lowered:
@@ -289,6 +286,11 @@ def _parse_xml_once(
             raise
         except (UnicodeDecodeError, ValueError):
             continue
+    # C4.1: sanitize invalid UTF-8 (e.g., lone surrogate bytes) before parsing so one bad item doesn't abort the whole feed
+    try:
+        payload.decode("utf-8")
+    except UnicodeDecodeError:
+        payload = payload.decode("utf-8", errors="replace").encode("utf-8")
     parser = ET.XMLPullParser(events=("start", "end"))
     depth = 0
     nodes = 0
