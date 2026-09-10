@@ -95,6 +95,12 @@ This is an implementation checkpoint, not a closure certificate. Code, tests, an
 - New docs/reviews/2026-09-10-application-security-closure.md replays every CG4 probe as a checked-in regression (23 passed across the six probe files on this checkout) and records the decision-set table with residuals. No production code changed.
 - Decision stays NO-GO.
 
+## 2026-09-10 update (main @ 3af0757, PR #33 open)
+
+- PR #32 merged to protected main (merge 3af0757); post-merge run 34485376412 completed success (quality, package, container, coverage-and-critical-branches, unit ubuntu+windows py3.12-3.14, GitGuardian). No open PRs after the merge; worktree clean.
+- Local re-verification on this checkout: full pytest run green, 618 tests (617 passed, 1 skipped, zero failures); ruff check and strict mypy (22 modules) clean. No source changes since the green CI build; only this ledger update follows.
+- Decision stays NO-GO.
+
 ## Verified local facts
 
 - 509 tests collected; the fresh full `pytest` suite passed.

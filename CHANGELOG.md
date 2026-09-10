@@ -27,6 +27,7 @@
 - Omitted-history proof (PR #30): new tests/test_c46_omitted_history.py closes the C4.6 final-payload gap (F-019) as a checked-in regression: an oversized digest-omitted item between two healthy siblings flows through build_digest into prepare_delivery, every outbox chunk is accepted, and the omitted fingerprint is absent from delivery_items, outbox payloads, and article_history while the included fingerprints map exactly and the delivery completes. No production code changed.
 - Ledger (PR #30): PR #30 merged to main @ d75d6e7; post-merge run 34483151867 completed success on protected main. Full local pytest re-verified 618 tests (617 passed, 1 skipped, zero failures). No behavior change; release decision remains NO-GO.
 - Checker proof (PR #32): extends scripts/critical-branches.json from 8 to 16 entries so the reviewed gate enforces every C4.7 decision set (Unicode scalar/control, URL/DNS/redirect, XML DTD/entity, MemoryError, worker termination, identity migration, merge/fuzzy budgets, Telegram omission/sizing); publisher classification stays outcome-proven by the C4.5 proof because the classifier is branchless by design. Adds docs/reviews/2026-09-10-application-security-closure.md with the CG4 probe replay matrix. No production code changed.
+- Ledger (PR #32): PR #32 merged to main @ 3af0757; post-merge run 34485376412 completed success on protected main. Full local pytest re-verified 618 tests (617 passed, 1 skipped, zero failures). No behavior change; release decision remains NO-GO.
 
 ## 2.0.0 - production-readiness implementation
 
