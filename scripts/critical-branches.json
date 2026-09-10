@@ -62,7 +62,7 @@
     },
     {
       "file": "meco_news/collectors.py",
-      "line": 625,
+      "line": 627,
       "description": "partial worker frame is bounded",
       "tests": [
         "test_worker_entry_and_frame_failure_boundaries"
