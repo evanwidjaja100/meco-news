@@ -1509,6 +1509,21 @@ def _state_status(path: str | Path, config: AppConfig | None = None) -> dict[str
         reader.close()
 
 
+def _finish_command(
+    command_attempt: AttemptLifecycle | None,
+    *,
+    result: str,
+    outcome: str,
+    code: int,
+    error_class: str = "",
+) -> int:
+    """Emit the single terminal record for a command path and return its exit code."""
+
+    assert command_attempt is not None, f"command path {outcome} has no command lifecycle"
+    command_attempt.finalize(result, outcome=outcome, error_class=error_class)
+    return code
+
+
 def main(argv: list[str] | None = None) -> int:
     load_dotenv()
     parser = build_parser()
@@ -1571,19 +1586,54 @@ def main(argv: list[str] | None = None) -> int:
     else:
         startup_mode = "delivery"
     emit_event("startup", mode=startup_mode, config_hash=config.config_hash)
+    # C5.1: every operator/query command owns one attempt lifecycle so each
+    # command path emits exactly one terminal record. Delivery and daemon
+    # paths keep their own run/attempt records and never finalize this one.
+    command_attempt: AttemptLifecycle | None = None
+    if startup_mode in {
+        "config_show",
+        "preflight",
+        "preflight_online",
+        "status",
+        "healthcheck",
+        "metrics",
+        "backup",
+        "restore",
+        "resolve_chunk",
+        "migrate",
+        "test_telegram",
+        "discover_chat",
+    }:
+        command_run_id = uuid.uuid4().hex
+        command_attempt = AttemptLifecycle(
+            kind="command",
+            run_id=command_run_id,
+            attempt_id=f"{command_run_id}:command:{startup_mode}",
+        )
 
     if args.config_show:
         print(json.dumps(config.redacted(), indent=2, ensure_ascii=False, sort_keys=True))
-        return 0
+        return _finish_command(command_attempt, result="success", outcome="config_shown", code=0)
     if args.preflight:
         code, report = run_preflight(config, online=args.online)
         print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))
-        return code
+        return _finish_command(
+            command_attempt,
+            result="success" if code == 0 else "terminal",
+            outcome="preflight_passed" if code == 0 else "preflight_failed",
+            code=code,
+        )
     if args.status:
         report = _state_status(os.getenv("STATE_DB", "data/meco_news.db"), config)
         print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))
         # F11: missing is initial setup (success); any damaged state fails.
-        return 0 if report.get("state") in {"ok", "missing"} else 1
+        status_healthy = report.get("state") in {"ok", "missing"}
+        return _finish_command(
+            command_attempt,
+            result="success" if status_healthy else "terminal",
+            outcome="status_reported",
+            code=0 if status_healthy else 1,
+        )
     if args.healthcheck:
         healthy, report = healthcheck(config, max_heartbeat_age=max(1, args.max_heartbeat_age))
         if args.alert_file:
@@ -1592,13 +1642,24 @@ def main(argv: list[str] | None = None) -> int:
             receipts = evaluate_health(report, JsonlAlertSink(args.alert_file))
             report["alert_receipts"] = [receipt.as_dict() for receipt in receipts]
         print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))
-        return 0 if healthy else 1
+        return _finish_command(
+            command_attempt,
+            result="success" if healthy else "terminal",
+            outcome="healthy" if healthy else "unhealthy",
+            code=0 if healthy else 1,
+        )
     if args.metrics:
         from .metrics import metrics_snapshot
 
         report = metrics_snapshot(os.getenv("STATE_DB", "data/meco_news.db"))
         print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))
-        return 0 if report.get("state") in {"ok", "missing"} else 1
+        metrics_healthy = report.get("state") in {"ok", "missing"}
+        return _finish_command(
+            command_attempt,
+            result="success" if metrics_healthy else "terminal",
+            outcome="metrics_exported",
+            code=0 if metrics_healthy else 1,
+        )
     if args.backup:
         try:
             artifact = create_backup(os.getenv("STATE_DB", "data/meco_news.db"), args.backup, config_hash=config.config_hash)
@@ -1606,11 +1667,13 @@ def main(argv: list[str] | None = None) -> int:
             emit_event("backup_failed", level=logging.ERROR, outcome="failed_terminal", error_class=type(exc).__name__)
             if args.json_output:
                 print(json.dumps({"code": 1, "outcome": "backup_failed", "error_class": type(exc).__name__}, sort_keys=True))
-            return 1
+            return _finish_command(
+                command_attempt, result="terminal", outcome="backup_failed", code=1, error_class=type(exc).__name__
+            )
         print(
             json.dumps({"database": str(artifact.database), "manifest": str(artifact.manifest), "sha256": artifact.sha256}, sort_keys=True)
         )
-        return 0
+        return _finish_command(command_attempt, result="success", outcome="backup_created", code=0)
     if args.restore:
         try:
             target = restore_backup(args.restore, os.getenv("STATE_DB", "data/meco_news.db"))
@@ -1618,12 +1681,14 @@ def main(argv: list[str] | None = None) -> int:
             emit_event("restore_failed", level=logging.ERROR, outcome="failed_terminal", error_class=type(exc).__name__)
             if args.json_output:
                 print(json.dumps({"code": 1, "outcome": "restore_failed", "error_class": type(exc).__name__}, sort_keys=True))
-            return 1
+            return _finish_command(
+                command_attempt, result="terminal", outcome="restore_failed", code=1, error_class=type(exc).__name__
+            )
         if args.json_output:
             print(json.dumps({"code": 0, "outcome": "restored", "target": str(target)}, sort_keys=True))
         else:
             print(f"Restored {target}", file=sys.stderr)
-        return 0
+        return _finish_command(command_attempt, result="success", outcome="restored", code=0)
     if args.resolve_chunk is not None:
         try:
             assert args.resolution is not None and args.reason is not None and args.operator is not None
@@ -1639,12 +1704,14 @@ def main(argv: list[str] | None = None) -> int:
                     maintenance_context=maintenance,
                 )
             print(json.dumps({"delivery_id": delivery.delivery_id, "state": delivery.state}, sort_keys=True))
-            return 0
+            return _finish_command(command_attempt, result="success", outcome="chunk_resolved", code=0)
         except Exception as exc:
             emit_event("resolution_failed", level=logging.ERROR, outcome="failed_terminal", error_class=type(exc).__name__)
             if args.json_output:
                 print(json.dumps({"code": 1, "outcome": "resolution_failed", "error_class": type(exc).__name__}, sort_keys=True))
-            return 1
+            return _finish_command(
+                command_attempt, result="terminal", outcome="resolution_failed", code=1, error_class=type(exc).__name__
+            )
     if args.migrate:
         # C2.2/C2.5: only the current audited target is exposed.  The
         # maintenance guard owns the path for the whole manifest/transaction
@@ -1663,7 +1730,13 @@ def main(argv: list[str] | None = None) -> int:
                     f"--to-version must equal the supported schema {CURRENT_SCHEMA_VERSION}; no state was changed",
                     file=sys.stderr,
                 )
-            return 2
+            return _finish_command(
+                command_attempt,
+                result="terminal",
+                outcome="unsupported_migration_target",
+                code=2,
+                error_class="ConfigurationError",
+            )
         migration_path = Path(os.getenv("STATE_DB", "data/meco_news.db")).resolve()
         try:
             with MaintenanceContext.acquire(
@@ -1682,13 +1755,15 @@ def main(argv: list[str] | None = None) -> int:
             payload = {"code": 1, "outcome": "migration_failed", "error_class": type(exc).__name__}
             if args.json_output:
                 print(json.dumps(payload, sort_keys=True))
-            return 1
+            return _finish_command(
+                command_attempt, result="terminal", outcome="migration_failed", code=1, error_class=type(exc).__name__
+            )
         payload = {"code": 0, "outcome": "migration_applied", "applied": applied, "schema_version": CURRENT_SCHEMA_VERSION}
         if args.json_output:
             print(json.dumps(payload, sort_keys=True))
         else:
             print(json.dumps(payload, sort_keys=True), file=sys.stderr)
-        return 0
+        return _finish_command(command_attempt, result="success", outcome="migration_applied", code=0)
     if args.test_telegram or args.discover_chat:
         if looks_placeholder(os.getenv("TELEGRAM_BOT_TOKEN", "")) or (
             args.test_telegram and looks_placeholder(os.getenv("TELEGRAM_CHAT_ID", ""))
@@ -1696,7 +1771,13 @@ def main(argv: list[str] | None = None) -> int:
             emit_event("telegram_test_failed", level=logging.ERROR, outcome="preflight_failed", error_class="TelegramSecretConfiguration")
             if args.json_output:
                 print(json.dumps({"code": 3, "outcome": "telegram_test_failed", "error_class": "TelegramSecretConfiguration"}, sort_keys=True))
-            return 3
+            return _finish_command(
+                command_attempt,
+                result="terminal",
+                outcome="telegram_test_failed",
+                code=3,
+                error_class="TelegramSecretConfiguration",
+            )
         try:
             client = TelegramClient(os.getenv("TELEGRAM_BOT_TOKEN", ""), os.getenv("TELEGRAM_CHAT_ID", ""), config.request_timeout_seconds)
             if args.discover_chat:
@@ -1707,19 +1788,26 @@ def main(argv: list[str] | None = None) -> int:
                     print("No chats found. Open the bot in Telegram, send /start, then try again.", file=sys.stderr)
                 else:
                     print(json.dumps(chats, indent=2, ensure_ascii=False))
-                return 0 if chats else 1
+                return _finish_command(
+                    command_attempt,
+                    result="success" if chats else "terminal",
+                    outcome="chats_discovered" if chats else "no_chats",
+                    code=0 if chats else 1,
+                )
             identity = client.get_me()
             message_id = client.send_html("<b>MECO Market Watch test successful.</b>\nTelegram delivery is configured.")
             if args.json_output:
                 print(json.dumps({"code": 0, "outcome": "telegram_test_succeeded", "message_id": message_id, "bot": identity.get("username", identity.get("first_name", "bot"))}, ensure_ascii=False, sort_keys=True))
             else:
                 print(f"Test delivered by @{identity.get('username', identity.get('first_name', 'bot'))}.", file=sys.stderr)
-            return 0
+            return _finish_command(command_attempt, result="success", outcome="telegram_test_succeeded", code=0)
         except Exception as exc:
             emit_event("telegram_test_failed", level=logging.ERROR, outcome="failed_terminal", error_class=type(exc).__name__)
             if args.json_output:
                 print(json.dumps({"code": 1, "outcome": "telegram_test_failed", "error_class": type(exc).__name__}, sort_keys=True))
-            return 1
+            return _finish_command(
+                command_attempt, result="terminal", outcome="telegram_test_failed", code=1, error_class=type(exc).__name__
+            )
     try:
         if args.daemon:
             return run_daemon(config, args.run_now, config_path=args.config)
