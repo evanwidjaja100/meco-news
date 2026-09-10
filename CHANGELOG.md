@@ -31,6 +31,8 @@
 
 - Command-terminal proof (PR #34): every operator/query command path in `meco_news/app.py` owns one `command` attempt lifecycle via `_finish_command` and emits exactly one `attempt_terminal` record (`config_shown`, `preflight_passed`/`preflight_failed`, `status_reported`, `healthy`/`unhealthy`, `metrics_exported`, `backup_created`/`backup_failed`, `restored`/`restore_failed`, `chunk_resolved`/`resolution_failed`, `migration_applied`/`migration_failed`/`unsupported_migration_target`, `telegram_test_succeeded`/`telegram_test_failed`, `chats_discovered`/`no_chats`); covers `preflight_online` lifecycle; machine-mode stdout stays exactly one JSON document with diagnostics on stderr. Adds `tests/test_c51_command_terminal.py` (13 tests) and documents command outcomes plus 90-day attempt / 365-day identity retention in `docs/monitoring.md`. Decision stays NO-GO.
 
+- Ledger (PR #34): PR #34 merged to main @ 6269d9f; post-merge run 34488499738 completed success on protected main. Full local pytest re-verified 631 tests (630 passed, 1 skipped, zero failures). No behavior change; release decision remains NO-GO.
+
 ## 2.0.0 - production-readiness implementation
 
 - Added typed strict configuration and safe CLI/preflight/status/health/backup modes.
