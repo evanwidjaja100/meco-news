@@ -46,6 +46,12 @@ This is an implementation checkpoint, not a closure certificate. Code, tests, an
 - New C4.2 proof in this PR (tests/test_c42_numeric_ip_forms.py): obfuscated 127.0.0.1 spellings (decimal 2130706433, hex 0x7f000001, octal 0177.0.0.1 and variants) are locked in hermetically. The classifier fails closed on every unparseable form and the resolution layer rejects a glibc-style 127.0.0.1 answer with ssrf_address_class for each form under stubbed getaddrinfo, with a public-answer positive control. This converts the prior disposable probe sentence into a checked-in regression; no behavior change.
 - Decision stays NO-GO.
 
+## 2026-09-10 update (main @ ef36379, PR #24 open)
+
+- PR #23 merged to protected main (merge ef36379); post-merge run 34475045879 completed success (quality, package, container, coverage-and-critical-branches, unit ubuntu+windows py3.12-3.14, GitGuardian). No open PRs after the merge; worktree clean.
+- Local re-verification on this checkout: full pytest run green, 609 tests (608 passed, 1 skipped, zero failures); Ruff and strict mypy (22 modules) clean. No source changes since the green CI build; only this ledger update follows.
+- Decision stays NO-GO.
+
 ## Verified local facts
 
 - 509 tests collected; the fresh full `pytest` suite passed.
