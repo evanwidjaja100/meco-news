@@ -29,7 +29,10 @@ from .urls import URLPolicyError, validate_url
 import contextlib
 
 
-_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+# C4.1: C0/C1 controls plus Unicode bidi overrides/isolates and LRM/RLM marks.
+# U+061C (Arabic letter mark) is deliberately kept: it is legitimate text,
+# not a spoofing control. Valid emoji/astral and combining marks are untouched.
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 LOGGER = logging.getLogger(__name__)
 MAX_CONCURRENT_REQUESTS_PER_HOST = 2
 DEFAULT_IPC_FRAME_BYTES = 4 * 1024 * 1024
