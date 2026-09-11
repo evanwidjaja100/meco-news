@@ -109,6 +109,12 @@ This is an implementation checkpoint, not a closure certificate. Code, tests, an
 - Local verification on this checkout: full pytest green, 631 tests (630 passed, 1 skipped, zero failures); `ruff check meco_news tests scripts` clean; strict `mypy meco_news` clean (22 modules).
 - Decision stays NO-GO.
 
+## 2026-09-10 update (main @ 6269d9f, PR #35 open)
+
+- PR #34 merged to protected main (merge 6269d9f); post-merge run 34488499738 completed success (quality, package, container, coverage-and-critical-branches, unit ubuntu+windows py3.12-3.14, GitGuardian). No open PRs after the merge; worktree clean.
+- Local re-verification on this checkout: full pytest run green, 631 tests (630 passed, 1 skipped, zero failures); ruff check and strict mypy (22 modules) clean. No source changes since the green CI build; only this ledger update follows.
+- Decision stays NO-GO.
+
 ## Verified local facts
 
 - 509 tests collected; the fresh full `pytest` suite passed.
