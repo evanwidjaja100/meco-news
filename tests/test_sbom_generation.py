@@ -42,10 +42,14 @@ class SbomGenerationTests(unittest.TestCase):
         )
         self.assertEqual(document["bomFormat"], "CycloneDX")
         self.assertEqual(document["specVersion"], "1.5")
-        self.assertEqual(len(document["components"]), 16)
+        self.assertEqual(len(document["components"]), 46)
         self.assertTrue(document["serialNumber"].startswith("urn:uuid:"))
         by_name = {component["name"]: component for component in document["components"]}
         self.assertEqual(by_name["setuptools"]["scope"], "optional")
+        self.assertEqual(by_name["sigstore"]["scope"], "excluded")
+        self.assertEqual(by_name["sigstore"]["version"], "4.5.0")
+        self.assertEqual(by_name["typing-extensions"]["scope"], "optional")
+        self.assertNotIn("typing_extensions", by_name)
 
     def test_generation_is_deterministic_for_fixed_timestamp(self) -> None:
         locks = [(ROOT / "requirements-build.lock", "excluded"), (ROOT / "requirements-dev.lock", "optional")]

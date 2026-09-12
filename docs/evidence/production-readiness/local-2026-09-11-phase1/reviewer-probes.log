@@ -1,0 +1,7 @@
+RP1 PASS: restore-to-new-path sent 0x, outcome=needs_attention, chunks held ambiguous
+RP2 PASS: ambiguous backup restore refused (StateError)
+{"delivery_id": 1, "state": "prepared"}
+RP3 PASS: mismatch blocked 0x; audited reconcile resumed original payload 1x
+RP4 PASS: healthy sibling intact, quarantine=['invalid_unicode_scalar']
+RP5 PASS: unsigned verify rc=1, signature reported
+ALL REVIEWER PROBES DONE

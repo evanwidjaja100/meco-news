@@ -1,0 +1,68 @@
+{
+  "captured_at": "2026-09-11T21:07:39+07:00",
+  "head": "952a72a",
+  "branch": "main",
+  "reviewer": "Evan Widjaja (owner self-review; different-reviewer deviation accepted)",
+  "checks": [
+    {
+      "id": "unit-pytest",
+      "command": "python -m coverage run --branch --source=meco_news -m pytest",
+      "expected": "full suite green on final tree",
+      "actual": "641 passed, 1 skipped, 0 failed in 125.88s",
+      "artifact": "phase1-pytest-final3.log",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "coverage-gate",
+      "command": "python scripts/coverage_gate.py --coverage-json coverage.json --critical-branches scripts/critical-branches.json",
+      "expected": "statements and branches each >= 90; critical register 16/16",
+      "actual": {
+        "statement": {"covered": 6133, "percent": 93.079, "total": 6589},
+        "branch": {"covered": 1968, "percent": 90.943, "total": 2164},
+        "critical_branches": {"missing": [], "registered": 16, "unknown": []}
+      },
+      "artifact": "coverage.json",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "reviewer-probes",
+      "command": "python docs/evidence/production-readiness/local-2026-09-11-phase1/reviewer_probes.py",
+      "expected": "RP1-RP5 all pass; any failure reopens its finding",
+      "actual": "RP1-RP5 PASS",
+      "artifact": "reviewer-probes.log, reviewer-probes.json",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "lease-race-50",
+      "command": "python -m pytest tests/test_c22_lease_race.py",
+      "expected": "exactly one winner across 50 true processes; losers see already_running",
+      "actual": "1 passed standalone; green inside final full suite",
+      "artifact": "phase1-race-f05.log, phase1-pytest-final3.log",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "ruff",
+      "command": "python -m ruff check meco_news tests scripts",
+      "expected": "no findings",
+      "actual": "All checks passed",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "mypy",
+      "command": "python -m mypy meco_news",
+      "expected": "strict clean on 22 modules",
+      "actual": "Success: no issues found in 22 source files",
+      "exit_code": 0,
+      "result": "passed"
+    }
+  ],
+  "findings_fixed": ["F01", "F-C4.1", "F03", "F04", "F05"],
+  "open_scope": "Phase 4 target-host and second-operator evidence; Phases 2-5 gates",
+  "release_decision": "NO-GO",
+  "phase1_local_review": "COMPLETE"
+}

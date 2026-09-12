@@ -1,0 +1,35 @@
+MECO News Scraper Phase 1 independent re-review record
+Captured: 2026-09-11T21:07:39+07:00 (Asia/Jakarta)
+Environment: Windows AMD64, CPython 3.14.6
+Python: D:\Desktop\test\meco news scraper\.venv\Scripts\python.exe
+Git commit: 952a72af1415c54185d6a4b6eab68611cc42a88f (main)
+Working tree: uncommitted work only; no branches or commits per review instruction
+
+Tool versions
+pytest 8.3.5
+ruff 0.14.14
+mypy 1.19.1
+coverage.py 7.6.11
+
+Verification commands and results
+python -m ruff check meco_news tests scripts -> exit 0; All checks passed
+python -m mypy meco_news -> exit 0; 22 source modules clean
+python -m coverage run --branch --source=meco_news -m pytest -> exit 0; 641 passed, 1 skipped in 125.88s
+python -m coverage json -o docs/evidence/production-readiness/local-2026-09-11-phase1/coverage.json -> exit 0
+python scripts/coverage_gate.py --coverage-json coverage.json --critical-branches scripts/critical-branches.json -> exit 0; statements 6133/6589 (93.079 pct); branches 1968/2164 (90.943 pct); critical 16/16
+python docs/evidence/production-readiness/local-2026-09-11-phase1/reviewer_probes.py -> exit 0; RP1-RP5 PASS
+python -m pytest tests/test_c22_lease_race.py -> exit 0; exactly one winner across 50 true processes
+python -m pytest tests/test_c52_delivery_reconcile.py tests/test_group8_gates.py -> exit 0
+
+Reviewer findings fixed in this pass
+F01 fresh-target restore quarantine (meco_news/backup.py; tests/test_backup_coverage.py)
+F-C4.1 C0 control neutralization (meco_news/collectors.py; tests/test_c41_unicode_scalar.py)
+F03 reconcile_delivery resume path (meco_news/storage.py plus CLI; tests/test_c52_delivery_reconcile.py)
+F04 critical-branch re-pin after product edits (scripts/critical-branches.json)
+F05 durable marker publish retry under 50-process load (meco_news/maintenance.py; tests/test_c22_lease_race.py)
+
+Safety and scope
+Disposable temp dirs only; mocked Telegram transports; never .env.
+Local matrices only; target-host and second-operator evidence stays open for Phase 4.
+Decision stays NO-GO until Phases 2-5 close. Phase 1 local re-review COMPLETE.
+Reviewer: Evan Widjaja (owner self-review; different-reviewer deviation accepted).

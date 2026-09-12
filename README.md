@@ -33,6 +33,12 @@ python -m meco_news --resolve-chunk 12 --resolution sent --reason "confirmed in 
 # or --resolution retry when Telegram confirms it was not accepted
 ```
 
+A destination change blocks the frozen delivery without sending. After reverting the destination, resume it through audit (unsent deliveries only):
+
+```powershell
+python -m meco_news --reconcile-delivery 7 --reason "destination reverted" --operator "name"
+```
+
 If at least one source succeeds but no eligible story remains, the service sends one outboxed coverage notice and completes as `completed_empty`. If every source fails, it enters bounded same-day retry and becomes unhealthy after exhaustion. One-to-four stories are delivered with a coverage warning.
 
 `--force` creates a new audited generation only after the date is complete and no ambiguity exists. It still excludes acknowledged URL/title history; it is not a replay command.
