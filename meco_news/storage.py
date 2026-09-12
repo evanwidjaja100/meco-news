@@ -2005,6 +2005,71 @@ class StateStore:
                 raise
         return self.delivery(delivery_id)  # type: ignore[return-value]
 
+    def reconcile_delivery(
+        self,
+        delivery_id: int,
+        *,
+        current_snapshot: str,
+        reason: str,
+        operator: str,
+        maintenance_context: MaintenanceContext | None = None,
+    ) -> DeliveryInfo:
+        """Resume an unsent destination-mismatch delivery after operator audit.
+
+        Only a needs_attention delivery frozen to a destination that matches
+        the current snapshot again, with every chunk still pending and never
+        attempted, may resume to prepared. Partly-sent work stays blocked:
+        only unsent mismatch deliveries have a supported resume path.
+        """
+        self._ensure_writable()
+        context = maintenance_context or self._maintenance_context
+        if context is None:
+            raise StateError("delivery reconciliation requires exclusive maintenance authority")
+        if self._maintenance_context is not context:
+            raise StateError("delivery reconciliation context is not attached to this state store")
+        reason = _sanitize_error(reason, 500)
+        operator = _sanitize_error(operator, 160)
+        if not reason or not operator:
+            raise StateError("delivery reconciliation requires a nonempty reason and operator")
+        with self._lock:
+            self.connection.execute("BEGIN IMMEDIATE")
+            try:
+                self._assert_maintenance_authority_in_transaction()
+                row = self.connection.execute(
+                    "SELECT state,target_snapshot,terminal_error FROM deliveries WHERE delivery_id=?", (delivery_id,)
+                ).fetchone()
+                if not row:
+                    raise InvalidTransition("delivery does not exist")
+                state, frozen, terminal_error = str(row[0]), str(row[1] or ""), str(row[2] or "")
+                if state != "needs_attention" or not terminal_error.startswith("target snapshot mismatch"):
+                    raise InvalidTransition("only a destination-mismatch delivery can be reconciled")
+                if not frozen or current_snapshot != frozen:
+                    raise InvalidTransition("destination still differs from the frozen snapshot")
+                chunks = self.connection.execute(
+                    "SELECT state,attempt_count FROM outbox_chunks WHERE delivery_id=?", (delivery_id,)
+                ).fetchall()
+                if not chunks:
+                    raise InvalidTransition("delivery has no frozen outbox to resume")
+                if any(str(state_) != "pending" or int(attempts or 0) != 0 for state_, attempts in chunks):
+                    raise InvalidTransition("delivery is partly sent; only unsent mismatch deliveries can resume")
+                self.connection.execute(
+                    "UPDATE deliveries SET state='prepared',terminal_error='' WHERE delivery_id=?", (delivery_id,)
+                )
+                self._record_transition(
+                    "delivery",
+                    delivery_id,
+                    "needs_attention",
+                    "prepared",
+                    actor_type="operator",
+                    actor_id=operator,
+                    reason=reason,
+                )
+                self.connection.commit()
+            except Exception:
+                self.connection.rollback()
+                raise
+        return self.delivery(delivery_id)  # type: ignore[return-value]
+
     def status_snapshot(self, delivery_date: str | None = None) -> dict[str, Any]:
         active = self.active_delivery(delivery_date) if delivery_date else self._latest_active()
         unresolved = self.connection.execute("SELECT COUNT(*) FROM outbox_chunks WHERE state='ambiguous'").fetchone()[0]

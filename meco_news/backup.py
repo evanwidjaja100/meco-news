@@ -544,6 +544,46 @@ def _merge_post_backup_history(target: Path, restored: Path) -> int:
         target_con.close()
 
 
+def _quarantine_unreconciled_sendable(restored: Path) -> int:
+    """Fail closed when a restore has no live target to reconcile against.
+
+    A fresh-target restore cannot prove that no post-backup send happened
+    elsewhere, so pending/retry_wait chunks must not stay auto-sendable:
+    hold them ambiguous for audited operator resolution (sent|retry).
+    Returns the quarantined chunk count.
+    """
+    con = sqlite3.connect(restored)
+    try:
+        rows = con.execute(
+            "SELECT chunk_id FROM outbox_chunks WHERE state IN ('pending','retry_wait')"
+        ).fetchall()
+        if not rows:
+            return 0
+        con.execute(
+            "UPDATE outbox_chunks SET state='ambiguous',"
+            "error_class='restored_without_reconciliation_evidence',"
+            "error_text='fresh-target restore cannot prove no post-backup send; "
+            "audited resolve sent|retry required',"
+            "next_attempt_at=NULL WHERE state IN ('pending','retry_wait')"
+        )
+        quarantined = con.execute("SELECT changes()").fetchone()[0]
+        con.execute(
+            "UPDATE deliveries SET state='needs_attention',"
+            "terminal_error='fresh-target restore held sendable chunks for audited resolve sent|retry' "
+            "WHERE delivery_id IN (SELECT DISTINCT delivery_id FROM outbox_chunks "
+            "WHERE state='ambiguous' AND error_class='restored_without_reconciliation_evidence') "
+            "AND state NOT IN ('completed','completed_empty','failed_terminal','needs_attention')"
+        )
+        con.commit()
+        return int(quarantined)
+    except sqlite3.Error as exc:
+        with contextlib.suppress(sqlite3.Error):
+            con.rollback()
+        raise StateError(f"unreconciled restore quarantine failed: {exc}") from exc
+    finally:
+        con.close()
+
+
 def restore_backup(
     backup_path: str | Path,
     target_path: str | Path,
@@ -605,8 +645,11 @@ def restore_backup(
             with StateStore(temporary, readonly=True, offline=True) as restored:
                 if restored.integrity_check() != "ok" or restored.schema_version != CURRENT_SCHEMA_VERSION:
                     raise StateError("restored database failed compatibility verification")
+            evidence_free = not target.is_file()
             _merge_post_backup_history(target, temporary)
             _reconcile_restored_acks(target, temporary)
+            if evidence_free:
+                _quarantine_unreconciled_sendable(temporary)
             with StateStore(temporary, readonly=True, offline=True) as restored:
                 if restored.integrity_check() != "ok":
                     raise StateError("reconciled restore failed integrity verification")

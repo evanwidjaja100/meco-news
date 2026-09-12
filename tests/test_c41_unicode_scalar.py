@@ -65,11 +65,18 @@ class ScalarBoundaryTests(unittest.TestCase):
         self.assertIn("Hello", items[0].title)
         self.assertIn("World", items[0].title)
 
-    def test_illegal_xml_control_fails_closed(self) -> None:
-        from meco_news.collectors import SourceDataError
-
-        with self.assertRaises(SourceDataError):
-            parse_feed_result(_feed(_item("Hello\x01World!", "https://example.com/a")), "Test", "rss", source_id="test")
+    def test_illegal_xml_control_neutralized_per_item(self) -> None:
+        # NUL/SOH are not legal XML; the pre-parse boundary maps C4.1
+        # XML-illegal C0 controls to space so one hostile item cannot abort
+        # the whole feed and kill healthy siblings (Phase 1 reviewer probe).
+        good = _item("Healthy sibling", "https://example.com/good")
+        bad = _item("Hello\x01World\x00!", "https://example.com/bad")
+        payload = ("<?xml version=\"1.0\"?>" + "<rss><channel>" + bad + good + "</channel></rss>").encode("utf-8")
+        items, _ = parse_feed_result(payload, "Test", "rss", source_id="test")
+        self.assertEqual([i.title for i in items], ["Hello World !", "Healthy sibling"])
+        for item in items:
+            for ch in item.title + item.summary:
+                self.assertNotIn(ch, "\x00\x01")
 
 
 if __name__ == "__main__":

@@ -11,8 +11,8 @@
     {
       "id": "D2",
       "title": "License, ownership, and release authority",
-      "status": "confirmed - owner/release/operations/security: Evan Widjaja (2026-09-05)",
-      "decision": "License: UNLICENSED - owner approval required (pyproject.toml:11). Owner: PT Meco Inoxprima (pyproject.toml:12). Release approver: Evan Widjaja, Operations approver: Evan Widjaja, Security approver: Evan Widjaja \u2014 must be named in ADR-C03 before CG1.",
+      "status": "confirmed - owner/release/operations/security/business: Evan Widjaja (business added 2026-09-11)",
+      "decision": "License: UNLICENSED - owner approval required (pyproject.toml:11). Owner: PT Meco Inoxprima (pyproject.toml:12). Release approver: Evan Widjaja, Operations approver: Evan Widjaja, Security approver: Evan Widjaja, Business approver: Evan Widjaja (owner confirmation 2026-09-11).",
       "approver": "Evan Widjaja",
       "date": "2026-09-05"
     },
@@ -27,8 +27,8 @@
     {
       "id": "D4",
       "title": "Python versions",
-      "status": "amended 2026-09-05 - support Python 3.14; venv 3.14.6; container python:3.14-slim-bookworm (digest pin pending per branch-protection note)",
-      "decision": "Support Python 3.14; local venv 3.14.6; container python:3.14-slim-bookworm (Dockerfile:2, compose.yaml:6); immutable digest pin pending.",
+      "status": "amended 2026-09-05 - support Python 3.14; venv 3.14.6; container python:3.14-slim-bookworm digest-pinned (Dockerfile:3, compose.yaml:6, verified 2026-09-11); final-image digest binding per candidate still belongs to CG6",
+      "decision": "Support Python 3.14; local venv 3.14.6; container python:3.14-slim-bookworm (Dockerfile:2, compose.yaml:6); immutable digest pin present in Dockerfile and compose.yaml; final-image digest binding per candidate still belongs to CG6.",
       "approver": "Evan Widjaja",
       "date": "2026-09-05"
     },
@@ -44,7 +44,7 @@
       "id": "D6",
       "title": "Missing publication dates",
       "status": "decided",
-      "decision": "missing_date_policy=exclude is production default (config/watchlist.json:8). Dry-run surfaces exclusion reason via filter_fresh (ranking.py:62). Narrow exception requires business approval.",
+      "decision": "missing_date_policy=exclude is production default (config/watchlist.json:8). Dry-run surfaces exclusion reason via filter_fresh (ranking.py:90). Narrow exception requires business approval.",
       "approver": "TBD",
       "date": "2026-08-25"
     },
@@ -52,7 +52,7 @@
       "id": "D7",
       "title": "Title-only dedupe window",
       "status": "decided",
-      "decision": "title_dedupe_days=14 (config/watchlist.json:5), url_retention_days=365 (config/watchlist.json:6). Canonical URL long-lived, title short-lived (storage.py:350 identity_keys).",
+      "decision": "title_dedupe_days=14 (config/watchlist.json:5), url_retention_days=365 (config/watchlist.json:6). Canonical URL long-lived, title short-lived (storage.py:750 identity_keys).",
       "approver": "TBD",
       "date": "2026-08-25"
     },
@@ -60,7 +60,7 @@
       "id": "D8",
       "title": "Telegram ambiguity",
       "status": "decided",
-      "decision": "Never auto-resend. Mark ambiguous -> needs_attention, block later chunks, require audited resolve sent|retry with reason+operator (app.py:378, storage.py:943).",
+      "decision": "Never auto-resend. Mark ambiguous -> needs_attention, block later chunks, require audited resolve sent|retry with reason+operator (app.py:625, storage.py:1898).",
       "approver": "TBD",
       "date": "2026-08-25"
     },
@@ -68,7 +68,7 @@
       "id": "D9",
       "title": "Zero-story policy",
       "status": "decided",
-      "decision": "Some source succeeded + zero eligible: outbox one coverage notice, complete completed_empty. All-sources-failed: durable same-day retry (app.py:292). 1-4 stories: deliver with warning.",
+      "decision": "Some source succeeded + zero eligible: outbox one coverage notice, complete completed_empty. All-sources-failed: durable same-day retry (app.py:745). 1-4 stories: deliver with warning.",
       "approver": "TBD",
       "date": "2026-08-25"
     },
@@ -76,7 +76,7 @@
       "id": "D10",
       "title": "Alert channel",
       "status": "decided \u2014 independent where feasible",
-      "decision": "Use channel independent of production Telegram where feasible (ADR-C15). At minimum expose nonzero status/health (preflight.py:157 healthcheck + monitoring.md:14).",
+      "decision": "Use channel independent of production Telegram where feasible (ADR-C15). At minimum expose nonzero status/health (preflight.py:235 healthcheck + monitoring.md:14).",
       "approver": "TBD",
       "date": "2026-08-25"
     },
@@ -84,7 +84,7 @@
       "id": "D11",
       "title": "SQLite storage",
       "status": "decided",
-      "decision": "Local POSIX/NTFS only. SMB/NFS unsupported until explicit locking test passes (docs/deployment-linux-nas.md:3, storage.py:118 WAL).",
+      "decision": "Local POSIX/NTFS only. SMB/NFS unsupported until explicit locking test passes (docs/deployment-linux-nas.md:3, storage.py:287 WAL).",
       "approver": "TBD",
       "date": "2026-08-25"
     },
@@ -114,7 +114,7 @@
     {
       "id": "ADR-C03",
       "title": "License, copyright owner, approvers",
-      "status": "signed 2026-09-05 - owner/approvers: Evan Widjaja; UNLICENSED retained, owner PT Meco Inoxprima",
+      "status": "signed 2026-09-05 - owner/approvers: Evan Widjaja; UNLICENSED retained, owner PT Meco Inoxprima; business approver Evan Widjaja added 2026-09-11",
       "blocks": "Metadata and release",
       "approver": "Evan Widjaja",
       "date": "2026-09-05"
@@ -122,7 +122,7 @@
     {
       "id": "ADR-C04",
       "title": "Schema/version compatibility matrix + deployed inventory",
-      "status": "interim signed 2026-09-05 (CG1 baseline; full catalog in C2.1/C2.2) - current schema v3 = 13 tables (schema_migrations, sent_articles, runs, run_leases, deliveries, delivery_attempts, delivery_items, outbox_chunks, article_history, source_results, delivery_resolutions + sqlite_sequence), 5 indexes (idx_article_history_url/title, idx_deliveries_date_state, idx_chunks_due, idx_source_results_delivery); legacy v1 = sent_articles/runs; C1.2 inspection contract: missing/migration_required/compatible/newer_incompatible/malformed/corrupt with schema exit 5; C2.1/C2.2 must rerun the C1.2 truth table post-migration before CG2",
+      "status": "interim signed 2026-09-05 (CG1 baseline; full catalog in C2.1/C2.2) - current schema v5 = 14 tables (article_history, deliveries, delivery_attempts, delivery_items, delivery_resolutions, force_audits, maintenance_fences, outbox_chunks, run_leases, runs, schema_migrations, sent_articles, source_results, state_transitions + sqlite_sequence), 7 indexes (idx_article_history_title/url, idx_chunks_due, idx_deliveries_date_state, idx_force_audits_delivery, idx_source_results_delivery, idx_state_transitions_entity); legacy v1 = sent_articles/runs; C1.2 inspection contract: missing/migration_required/compatible/newer_incompatible/malformed/corrupt with schema exit 5; C2.1/C2.2 must rerun the C1.2 truth table post-migration before CG2",
       "blocks": "Migration catalog, restore"
     },
     {
@@ -134,25 +134,25 @@
     {
       "id": "ADR-C06",
       "title": "Runtime lease capability shape",
-      "status": "pending \u2014 scoped delivery+scheduler, 180s TTL, heartbeat 60s",
+      "status": "decided 2026-09-11 \u2014 owner-confirmed scopes delivery+scheduler, TTL 180s, heartbeat 60s; closure pending independent review",
       "blocks": "All state transitions"
     },
     {
       "id": "ADR-C07",
       "title": "Force + terminal retry grammar",
-      "status": "decided \u2014 force requires completed N and creates N+1 (storage.py:864), terminal retry same frozen failed generation allowlisted reason only",
+      "status": "decided \u2014 force requires completed N and creates N+1 (storage.py:798), terminal retry same frozen failed generation allowlisted reason only",
       "blocks": "Generations and CLI"
     },
     {
       "id": "ADR-C08",
       "title": "Telegram transport-stage + retry caps + wall-clock high-water",
-      "status": "pending \u2014 deterministic jitter app.py:92, caps base/max/jitter config",
+      "status": "decided 2026-09-11 \u2014 owner-confirmed retry caps as configured plus deterministic jitter app.py:125-130; closure pending independent review",
       "blocks": "Outbox and scheduler"
     },
     {
       "id": "ADR-C09",
       "title": "Scheduler invalid reload + DeliveryTargetSnapshot HMAC",
-      "status": "pending \u2014 current reload validates each cycle app.py:567",
+      "status": "pending \u2014 current reload validates each cycle app.py:1256-1308; HMAC key in owner custody (Evan Widjaja), rotation every 90 days (owner rule 2026-09-11); closure pending independent review",
       "blocks": "Scheduler and outbox"
     },
     {
@@ -176,7 +176,7 @@
     {
       "id": "ADR-C13",
       "title": "RPO/RTO/retention/encryption",
-      "status": "pending \u2014 RPO 24h RTO 60m targets per plan G2",
+      "status": "decided 2026-09-11 \u2014 owner-approved RPO 24h, RTO 60m; off-host store: Drive (Google-managed at-rest encryption only, owner-accepted 2026-09-11); restore second operator: Evan Widjaja; escalation owner: Evan Widjaja; retention per D12 (7 daily/4 weekly/12 monthly unless policy stronger); closure pending timed second-operator restore drill against approved RPO/RTO (CG5)",
       "blocks": "Backup/restore"
     },
     {
@@ -188,20 +188,38 @@
     {
       "id": "ADR-C15",
       "title": "Independent alert channel ownership",
-      "status": "pending \u2014 D10",
+      "status": "decided 2026-09-11 \u2014 independent Telegram alert channel approved (separate chat from the delivery chat); escalation owner: Evan Widjaja; alert channel MecoNews named 2026-09-11; closure pending channel wiring plus firing/recovery receipt evidence (CG5)",
       "blocks": "Alerts and rollout"
     },
     {
       "id": "ADR-C16",
       "title": "CI host, registry, signing, SBOM, scans",
-      "status": "pending \u2014 CI .github/workflows/ci.yml pinned SHAs",
+      "status": "approved 2026-09-11 \u2014 Sigstore keyless (Option A) trust root; CI actions already hash-pinned; closure pending wiring PR (package-job OIDC, sigstore-python pin, Rekor verification) and --require-signature pass (CG6); gate-waiver authority: Evan Widjaja (documented condition required per waiver)",
       "blocks": "Release gate"
     },
     {
       "id": "ADR-C17",
       "title": "Offline dry-run input contract",
-      "status": "decided \u2014 dry-run offline frozen local input, no network/state mutation (app.py:193)",
+      "status": "decided \u2014 dry-run offline frozen local input, no network/state mutation (app.py:420)",
       "blocks": "CLI, docs"
+    },
+    {
+      "id": "ADR-C18",
+      "title": "WAL-aware live snapshot vs immutable offline artifact + FULL writers",
+      "status": "pending \u2014 contract in closure plan 2.1 items 1 and 4; behavior implemented (inspection.py WAL-aware mode=ro live reads with immutable restricted to quiescent offline artifacts; storage.py enforces synchronous=FULL fail-closed); closure pending CG2 independent review",
+      "blocks": "C2.0 and final preflight/restore integration"
+    },
+    {
+      "id": "ADR-C19",
+      "title": "Ack-failure, missing-lease, terminal-reopen, post-backup reconciliation",
+      "status": "pending \u2014 contract in closure plan 2.1 item 4; R01-R20 implementation present per production-readiness-status; closure pending independent fault/restart replay review and target durability evidence",
+      "blocks": "State transition table, C2.4/C2.5/C3.3"
+    },
+    {
+      "id": "ADR-C20",
+      "title": "Per-source/queue/cycle budgets, bounded IPC, shutdown grace, fairness",
+      "status": "pending \u2014 behavior implemented (collectors.py per-source and cycle deadlines, bounded IPC frames, worker termination and reaping; app.py bounded shutdown); closure pending target process/shutdown evidence and independent review",
+      "blocks": "C4.4/C3.4 and target resource tests"
     }
   ]
 }

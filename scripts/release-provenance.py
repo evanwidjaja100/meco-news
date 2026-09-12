@@ -7,11 +7,16 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import subprocess
+import sys
 from typing import Any
 
 
 _FINGERPRINT_SKIP_DIRS = frozenset({".git", ".venv", "venv", "data", "logs", "backups", "dist", "build", "evidence", "tmp-wheelhouse"})
 _FINGERPRINT_SKIP_NAMES = frozenset({".env", ".env.example"})
+
+_SIGSTORE_OIDC_ISSUER = "https://token.actions.githubusercontent.com"
+_SIGSTORE_IDENTITY = "https://github.com/evanwidjaja100/meco-news/.github/workflows/ci.yml@refs/heads/main"
+_VERIFY_TIMEOUT_SECONDS = 120
 
 
 def _hash(path: Path) -> str:
@@ -69,6 +74,7 @@ def create_provenance(
     artifacts: list[str | Path],
     context_report: str | Path | None = None,
     sbom_report: str | Path | None = None,
+    signature_bundles: dict[str | Path, str | Path] | None = None,
 ) -> Path:
     repository = Path(root).resolve()
     files = [Path(value).resolve() for value in artifacts]
@@ -88,6 +94,33 @@ def create_provenance(
         if not sbom_path.is_file():
             raise FileNotFoundError(str(sbom_path))
         sbom_record = {"state": "attached", "path": str(sbom_path), "sha256": _hash(sbom_path)}
+    covered = [str(path) for path in files]
+    if sbom_record["state"] == "attached":
+        covered.append(str(sbom_record["path"]))
+    bundle_records: list[dict[str, Any]] = []
+    if signature_bundles:
+        seen: set[str] = set()
+        for raw_artifact, raw_bundle in signature_bundles.items():
+            key = str(Path(raw_artifact).resolve())
+            if key not in covered:
+                raise ValueError(f"signature bundle does not match a bound artifact: {raw_artifact}")
+            if key in seen:
+                raise ValueError(f"duplicate signature bundle for {raw_artifact}")
+            seen.add(key)
+            bundle_path = Path(raw_bundle).resolve()
+            if not bundle_path.is_file():
+                raise FileNotFoundError(str(bundle_path))
+            bundle_records.append(
+                {"artifact": key, "path": str(bundle_path), "sha256": _hash(bundle_path)}
+            )
+    bound = {entry["artifact"] for entry in bundle_records}
+    signed = bool(covered) and all(path in bound for path in covered)
+    signature_record: dict[str, Any] = {
+        "state": "signed" if signed else "not_signed",
+        "required_for_promotion": True,
+        "bundles": bundle_records,
+        "identity_policy": {"oidc_issuer": _SIGSTORE_OIDC_ISSUER, "identity": _SIGSTORE_IDENTITY},
+    }
     payload = {
         "schema_version": 1,
         "source": {
@@ -100,7 +133,7 @@ def create_provenance(
         "build_context": context_record,
         "python_support": ">=3.12,<3.15",
         "schema_compatibility": "application-enforced current schema",
-        "signature": {"state": "not_signed", "required_for_promotion": True},
+        "signature": signature_record,
         "sbom": sbom_record,
     }
     target = Path(output).resolve()
@@ -139,6 +172,89 @@ def _sbom_failures(raw: dict[str, Any]) -> list[str]:
     return []
 
 
+def _verify_bundle(bundle: Path, artifact: Path) -> str:
+    """Verify one Sigstore bundle against the pinned CI identity.
+
+    Returns "verified", "rejected", or "unavailable" when sigstore-python
+    is not installed or the verifier does not complete in time. Rejection
+    and absence both fail the gate; a missing verifier never weakens it.
+    """
+    try:
+        completed = subprocess.run(
+            [
+                sys.executable, "-m", "sigstore", "verify", "identity",
+                "--bundle", str(bundle),
+                "--cert-identity", _SIGSTORE_IDENTITY,
+                "--cert-oidc-issuer", _SIGSTORE_OIDC_ISSUER,
+                str(artifact),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=_VERIFY_TIMEOUT_SECONDS,
+        )
+    except FileNotFoundError:
+        return "unavailable"
+    except subprocess.TimeoutExpired:
+        return "unavailable"
+    if completed.returncode == 0:
+        return "verified"
+    if "No module named sigstore" in completed.stderr:
+        return "unavailable"
+    return "rejected"
+
+
+def _signature_failures(raw: dict[str, Any]) -> list[str]:
+    """Check bound Sigstore bundles against the pinned identity policy."""
+    signature = raw.get("signature", {})
+    if not isinstance(signature, dict) or signature.get("state") != "signed":
+        return ["signature:not_signed"]
+    bundles = signature.get("bundles", [])
+    if not isinstance(bundles, list) or not bundles:
+        return ["signature:unverifiable"]
+    records = raw.get("artifacts", [])
+    bound_paths = [str(record.get("path", "")) for record in records if isinstance(record, dict)]
+    sbom = raw.get("sbom", {})
+    if isinstance(sbom, dict) and sbom.get("state") == "attached":
+        bound_paths.append(str(sbom.get("path", "")))
+    by_artifact: dict[str, dict[str, Any]] = {}
+    for entry in bundles:
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(entry.get("artifact"), str)
+            or not entry.get("artifact")
+            or not isinstance(entry.get("path"), str)
+            or not isinstance(entry.get("sha256"), str)
+        ):
+            return ["signature:bundles_malformed"]
+        by_artifact[str(entry["artifact"])] = entry
+    failures: list[str] = []
+    for path in bound_paths:
+        if not path or path not in by_artifact:
+            failures.append("signature:bundle_missing")
+    for key in by_artifact:
+        if key not in bound_paths:
+            failures.append("signature:bundle_unknown")
+    if failures:
+        return failures
+    for entry in by_artifact.values():
+        candidate = Path(str(entry["path"]))
+        if not candidate.is_file():
+            failures.append("signature:bundle_missing")
+        elif not entry["sha256"] or _hash(candidate) != entry["sha256"]:
+            failures.append("signature:bundle_mismatch")
+    if failures:
+        return failures
+    for key, entry in by_artifact.items():
+        outcome = _verify_bundle(Path(str(entry["path"])), Path(key))
+        if outcome == "unavailable":
+            failures.append("signature:verifier_unavailable")
+        elif outcome != "verified":
+            failures.append(f"signature:rejected:{key}")
+    return failures
+
+
+
 def verify_provenance(
     path: str | Path, *, require_signature: bool = False, require_sbom: bool = False
 ) -> dict[str, Any]:
@@ -167,16 +283,7 @@ def verify_provenance(
             failures.extend(_sbom_failures(raw))
     if require_signature:
         failures.extend(_context_failures(raw))
-        signature = raw.get("signature", {})
-        state = signature.get("state") if isinstance(signature, dict) else None
-        if state != "signed":
-            failures.append("signature:not_signed")
-        else:
-            # This tool defines no attestation format and holds no trust
-            # root, so a self-asserted "signed" state is not authentication.
-            # Signature-gated promotion stays failed until an external
-            # verifier supplies verified results out of band.
-            failures.append("signature:unverifiable")
+        failures.extend(_signature_failures(raw))
     return {
         "passed": not failures,
         "failures": failures,
@@ -192,11 +299,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--artifact", action="append", default=[])
     parser.add_argument("--context-report")
     parser.add_argument("--sbom-report")
+    parser.add_argument("--signature-bundle", action="append", default=[], metavar="ARTIFACT=BUNDLE")
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--require-signature", action="store_true")
     parser.add_argument("--require-sbom", action="store_true")
     args = parser.parse_args(argv)
     try:
+        if args.signature_bundle and args.verify:
+            raise ValueError("--signature-bundle is only used when creating provenance")
+        bundles: dict[str, str] = {}
+        for item in args.signature_bundle:
+            name, separator, bundle = item.partition("=")
+            if not separator or not name or not bundle:
+                raise ValueError("--signature-bundle must be ARTIFACT=BUNDLE")
+            if name in bundles:
+                raise ValueError(f"duplicate signature bundle for {name}")
+            bundles[name] = bundle
         if args.verify:
             report = verify_provenance(
                 args.output, require_signature=args.require_signature, require_sbom=args.require_sbom
@@ -205,7 +323,12 @@ def main(argv: list[str] | None = None) -> int:
             if not args.artifact:
                 raise ValueError("--artifact is required when creating provenance")
             path = create_provenance(
-                args.root, args.output, args.artifact, args.context_report, args.sbom_report
+                args.root,
+                args.output,
+                args.artifact,
+                args.context_report,
+                args.sbom_report,
+                bundles or None,
             )
             report = {"passed": True, "provenance": str(path)}
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:

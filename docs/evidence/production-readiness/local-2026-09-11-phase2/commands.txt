@@ -1,0 +1,20 @@
+MECO News Scraper Phase 2 local verification commands
+Captured: 2026-09-11T21:54:00+07:00 (Asia/Jakarta)
+Head: 952a72a on main, uncommitted work only
+
+.venv/Scripts/python.exe -B -m unittest tests.test_release_signature -v -> 17 tests OK
+.venv/Scripts/python.exe -m ruff check meco_news tests scripts -> All checks passed
+.venv/Scripts/python.exe -m mypy meco_news -> Success: no issues found in 22 source files
+.venv/Scripts/python.exe -m build --no-isolation -> meco_news-2.0.0.tar.gz plus meco_news-2.0.0-py3-none-any.whl
+.venv/Scripts/python.exe scripts/generate-sbom.py --root . --build-lock requirements-build.lock --dev-lock requirements-dev.lock --output dist/sbom.json -> ok
+.venv/Scripts/python.exe scripts/release-provenance.py --root . --output dist/provenance.json --artifact <wheel> --artifact <sdist> --sbom-report dist/sbom.json -> passed true
+.venv/Scripts/python.exe scripts/release-provenance.py --output dist/provenance.json --verify --require-sbom -> passed true, exit 0
+.venv/Scripts/python.exe scripts/release-provenance.py --output dist/provenance.json --verify --require-sbom --require-signature -> failures [signature:not_signed], exit 1 (fail-closed, no OIDC outside CI)
+dummy-bundle probe (temp dir): create exit 0; --verify --require-signature -> failures [signature:verifier_unavailable], exit 1 (fail-closed, no local signer)
+.venv/Scripts/python.exe -B -m unittest tests.test_sbom_generation tests.test_release_signature tests.test_group8_gates -> Ran 40 tests OK
+.venv/Scripts/python.exe -m pytest -q -> 658 passed, 1 skipped, 0 failed, PYTEST-EXIT=0 (phase2-pytest-final.log; summary line absent under redirected output, counts read from progress marks)
+.venv/Scripts/python.exe -B -m unittest discover -s tests -> Ran 659 tests OK (skipped=1), UNITTEST-EXIT=0 (phase2-unittest-final.err)
+Secret-hygiene scan of the full change set (60 files incl. suite logs: token/key/password/private-key patterns): 0 hits
+CI-script rehearsal (temp dir, real wheel/sdist/SBOM, dummy bundles, CI-identical provenance lines): create exit 0 with 3 bound bundles and state signed; --verify --require-sbom exit 0; --verify --require-sbom --require-signature exit 1 with verifier_unavailable on all 3 pairs (no local signer; CI performs the real Rekor checks)
+
+Note: an earlier full-suite pass on this tree showed exactly one failure, the stale SBOM count assertion, fixed first by re-pinning 16 to 47 plus a sigstore scope assertion and then by PEP 503 name normalization (final: 46 components, single typing-extensions) in tests/test_sbom_generation.py before the final runs above.

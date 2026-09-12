@@ -1,0 +1,33 @@
+........................................................................ [ 11%]
+................................................................s....... [ 22%]
+........................................................................ [ 33%]
+........................................................................ [ 44%]
+........................................................................ [ 56%]
+........................................................................ [ 67%]
+........................................................................ [ 78%]
+...................................F.................................... [ 89%]
+.................................................................        [100%]
+================================== FAILURES ===================================
+_ CoverageGateSpoofTests.test_shipped_register_names_measured_branch_statements _
+
+self = <tests.test_group8_gates.CoverageGateSpoofTests testMethod=test_shipped_register_names_measured_branch_statements>
+
+    def test_shipped_register_names_measured_branch_statements(self) -> None:
+        register = json.loads((ROOT / "scripts" / "critical-branches.json").read_text(encoding="utf-8"))
+        self.assertGreater(len(register["branches"]), 0)
+        for entry in register["branches"]:
+            self.assertTrue(entry["tests"], entry)
+            source = ROOT / entry["file"]
+            self.assertTrue(source.is_file(), entry)
+            lines = source.read_text(encoding="utf-8").splitlines()
+            self.assertLess(entry["line"], len(lines), entry)
+            statement = lines[entry["line"] - 1].lstrip()
+>           self.assertTrue(
+                statement.startswith(("if ", "if(", "elif ", "except", "while ", "for ")),
+                {"entry": entry, "statement": statement},
+            )
+E           AssertionError: False is not true : {'entry': {'file': 'meco_news/app.py', 'line': 1009, 'description': 'in-flight failure remains operator attention', 'tests': ['test_live_outcome_matrix_for_existing_prepared_delivery']}, 'statement': '_r_enabled = bool(_r_frozen.get("enabled", config.retry_policy.enabled)) if isinstance(_r_frozen, dict) and _r_frozen else config.retry_policy.enabled'}
+
+tests\test_group8_gates.py:157: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_group8_gates.py::CoverageGateSpoofTests::test_shipped_register_names_measured_branch_statements

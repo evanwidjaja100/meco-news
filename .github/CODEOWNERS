@@ -1,6 +1,7 @@
 ﻿# This repository uses protected branch workflow for production readiness.
-# Owner: PT Meco Inoxprima (to be confirmed in ADR-C03 / D2)
-# Release approver: TBD — must be named before CG0 per C0.1
+# Owner: PT Meco Inoxprima (confirmed in signed ADR-C03 / D2, 2026-09-05)
+# Release approver: Evan Widjaja (named in signed ADR-C03 / D2, 2026-09-05; CG0 gate approval itself remains open per closure plan section 14)
+# Business approver: Evan Widjaja (owner confirmation 2026-09-11)
 
 *       @evanwidjaja100
 docs/decisions/* @evanwidjaja100

@@ -24,6 +24,12 @@ _VERSION_RE = re.compile(r"""__version__\s*=\s*["']([^"']+)["']""")
 _REQUIRE_RE = re.compile(r"^([A-Za-z0-9_.-]+)==([^\s\\]+)\s*\\?\s*$")
 _HASH_RE = re.compile(r"^--hash=(\w+):([0-9a-fA-F]+)\s*\\?\s*$")
 _HASH_ALG = {"sha256": "SHA-256", "sha384": "SHA-384", "sha512": "SHA-512"}
+_NORMALIZE_RE = re.compile(r"[-_.]+")
+
+
+def _normalize_name(name: str) -> str:
+    """Normalize a distribution name per PEP 503 so lock merges do not duplicate it."""
+    return _NORMALIZE_RE.sub("-", name).lower()
 
 
 def _read_package_version(root: Path) -> str:
@@ -48,7 +54,7 @@ def parse_lock(path: Path, scope: str) -> dict[tuple[str, str], dict[str, object
             continue
         requirement = _REQUIRE_RE.match(line)
         if requirement is not None:
-            current = (requirement.group(1), requirement.group(2))
+            current = (_normalize_name(requirement.group(1)), requirement.group(2))
             entries.setdefault(current, {"hashes": set(), "scope": scope})
             continue
         digest = _HASH_RE.match(line)

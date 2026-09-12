@@ -93,6 +93,7 @@ class RunOptions:
     backup: str | None
     restore: str | None
     resolve_chunk: int | None
+    reconcile_delivery: int | None
     resolution: str | None
     reason: str | None
     operator: str | None
@@ -1376,6 +1377,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--backup", metavar="PATH", help="Create an online SQLite backup at PATH")
     parser.add_argument("--restore", metavar="PATH", help="Restore a verified SQLite backup from PATH")
     parser.add_argument("--resolve-chunk", type=int, metavar="ID", help="Resolve one ambiguous outbox chunk")
+    parser.add_argument("--reconcile-delivery", type=int, metavar="ID", help="Resume one unsent destination-mismatch delivery")
     parser.add_argument("--resolution", choices=("sent", "retry"), help="Resolution for --resolve-chunk")
     parser.add_argument("--reason", help="Audited reason for manual chunk resolution")
     parser.add_argument("--operator", help="Operator identity for manual chunk resolution")
@@ -1390,12 +1392,14 @@ def _validate_options(parser: argparse.ArgumentParser, args: argparse.Namespace)
         parser.error("--top-candidates must be nonnegative")
     if args.max_heartbeat_age <= 0:
         parser.error("--max-heartbeat-age must be positive")
-    if args.resolve_chunk is None and (
+    if args.resolve_chunk is None and args.reconcile_delivery is None and (
         args.resolution is not None or (args.reason is not None or args.operator is not None) and not args.force
     ):
-        parser.error("--resolution, --reason, and --operator require --resolve-chunk")
+        parser.error("--resolution, --reason, and --operator require --resolve-chunk, --reconcile-delivery, or --force")
     if args.resolve_chunk is not None and args.resolve_chunk <= 0:
         parser.error("--resolve-chunk must be positive")
+    if args.reconcile_delivery is not None and args.reconcile_delivery <= 0:
+        parser.error("--reconcile-delivery must be positive")
     if args.to_version is not None and not args.migrate:
         parser.error("--to-version requires --migrate")
     if args.migrate and args.to_version is None:
@@ -1413,6 +1417,7 @@ def _validate_options(parser: argparse.ArgumentParser, args: argparse.Namespace)
         bool(args.backup),
         bool(args.restore),
         args.resolve_chunk is not None,
+        args.reconcile_delivery is not None,
         args.migrate,
     ]
     if sum(command_flags) > 1:
@@ -1452,6 +1457,10 @@ def _validate_options(parser: argparse.ArgumentParser, args: argparse.Namespace)
         parser.error("--alert-file requires --healthcheck")
     if args.resolve_chunk is not None and (args.resolution is None or not args.reason or not args.operator):
         parser.error("--resolve-chunk requires --resolution, --reason, and --operator")
+    if args.reconcile_delivery is not None and (not args.reason or not args.operator):
+        parser.error("--reconcile-delivery requires --reason and --operator")
+    if args.reconcile_delivery is not None and args.resolution is not None:
+        parser.error("--resolution cannot be combined with --reconcile-delivery")
 
 
 def _state_status(path: str | Path, config: AppConfig | None = None) -> dict[str, Any]:
@@ -1575,6 +1584,8 @@ def main(argv: list[str] | None = None) -> int:
         startup_mode = "restore"
     elif args.resolve_chunk is not None:
         startup_mode = "resolve_chunk"
+    elif args.reconcile_delivery is not None:
+        startup_mode = "reconcile_delivery"
     elif args.migrate:
         startup_mode = "migrate"
     elif args.test_telegram:
@@ -1600,6 +1611,7 @@ def main(argv: list[str] | None = None) -> int:
         "backup",
         "restore",
         "resolve_chunk",
+        "reconcile_delivery",
         "migrate",
         "test_telegram",
         "discover_chat",
@@ -1689,6 +1701,29 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"Restored {target}", file=sys.stderr)
         return _finish_command(command_attempt, result="success", outcome="restored", code=0)
+    if args.reconcile_delivery is not None:
+        try:
+            assert args.reason is not None and args.operator is not None
+            state_path = os.getenv("STATE_DB", "data/meco_news.db")
+            with MaintenanceContext.acquire(state_path, owner=f"operator:{uuid.uuid4().hex}") as maintenance, StateStore(
+                state_path, maintenance_context=maintenance
+            ) as store:
+                delivery = store.reconcile_delivery(
+                    args.reconcile_delivery,
+                    current_snapshot=_target_snapshot(config),
+                    reason=args.reason,
+                    operator=args.operator,
+                    maintenance_context=maintenance,
+                )
+            print(json.dumps({"delivery_id": delivery.delivery_id, "state": delivery.state}, sort_keys=True))
+            return _finish_command(command_attempt, result="success", outcome="delivery_reconciled", code=0)
+        except Exception as exc:
+            emit_event("reconciliation_failed", level=logging.ERROR, outcome="failed_terminal", error_class=type(exc).__name__)
+            if args.json_output:
+                print(json.dumps({"code": 1, "outcome": "reconciliation_failed", "error_class": type(exc).__name__}, sort_keys=True))
+            return _finish_command(
+                command_attempt, result="terminal", outcome="reconciliation_failed", code=1, error_class=type(exc).__name__
+            )
     if args.resolve_chunk is not None:
         try:
             assert args.resolution is not None and args.reason is not None and args.operator is not None

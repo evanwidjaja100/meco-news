@@ -1,0 +1,37 @@
+{
+  "RP1": {
+    "sends": 0,
+    "outcome": "needs_attention",
+    "chunks": [
+      [
+        "ambiguous",
+        "restored_without_reconciliation_evidence"
+      ]
+    ]
+  },
+  "RP2": {
+    "refused": "StateError",
+    "detail": "backup contains unresolved in-flight/ambiguous work; reconcile it before restore"
+  },
+  "RP3": {
+    "mismatch_outcome": "needs_attention",
+    "mismatch_sends": 0,
+    "reconcile_rc": 0,
+    "final_outcome": "completed",
+    "final_sends": 1,
+    "payload_preserved": true
+  },
+  "RP4": {
+    "healthy": [
+      "Healthy sibling"
+    ],
+    "quarantine": [
+      "invalid_unicode_scalar"
+    ]
+  },
+  "RP5": {
+    "generate_rc": 0,
+    "verify_rc": 1,
+    "verify_output": "{\"failures\": [\"signature:not_signed\"], \"passed\": false, \"sbom\": {\"required_for_promotion\": true, \"state\": \"not_attached\"}, \"signature\": {\"required_for_promotion\": true, \"state\": \"not_signed\"}}\n"
+  }
+}

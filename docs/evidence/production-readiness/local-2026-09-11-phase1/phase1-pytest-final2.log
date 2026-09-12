@@ -1,0 +1,74 @@
+........................................................................ [ 11%]
+................................................................s....... [ 22%]
+........................................................................ [ 33%]
+........................................................................ [ 44%]
+..................................................................F..... [ 56%]
+........................................................................ [ 67%]
+........................................................................ [ 78%]
+........................................................................ [ 89%]
+..................................................................       [100%]
+================================== FAILURES ===================================
+_ TrueProcessLeaseRaceTests.test_fifty_processes_yield_exactly_one_lease_winner _
+
+self = <tests.test_c22_lease_race.TrueProcessLeaseRaceTests testMethod=test_fifty_processes_yield_exactly_one_lease_winner>
+
+    def test_fifty_processes_yield_exactly_one_lease_winner(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_path = root / "race.db"
+            with StateStore(db_path):
+                pass
+            outdir = root / "results"
+            outdir.mkdir()
+            context = mp.get_context("spawn")
+            processes = [
+                context.Process(target=_racer, args=(str(db_path), index, str(outdir)))
+                for index in range(_RACERS)
+            ]
+            for process in processes:
+                process.start()
+            deadline = time.time() + 240.0
+            while time.time() < deadline:
+                if len(list(outdir.glob("*.txt"))) >= _RACERS:
+                    break
+                time.sleep(0.5)
+            for process in processes:
+                process.join(timeout=60.0)
+            results = {}
+            for index in range(_RACERS):
+                marker = outdir / f"{index}.txt"
+                self.assertTrue(marker.is_file(), f"racer {index} produced no result")
+                results[index] = marker.read_text(encoding="utf-8")
+            for process in processes:
+>               self.assertEqual(process.exitcode, 0, f"racer pid={process.pid} exitcode={process.exitcode}")
+E               AssertionError: 1 != 0 : racer pid=14268 exitcode=1
+
+tests\test_c22_lease_race.py:68: AssertionError
+---------------------------- Captured stderr call -----------------------------
+Process SpawnProcess-18:
+Traceback (most recent call last):
+  File "C:\Program Files\Python314\Lib\multiprocessing\process.py", line 320, in _bootstrap
+    self.run()
+    ~~~~~~~~^^
+  File "C:\Program Files\Python314\Lib\multiprocessing\process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Desktop\test\meco news scraper\tests\test_c22_lease_race.py", line 26, in _racer
+    with StateStore(db_path) as store:
+         ~~~~~~~~~~^^^^^^^^^
+  File "D:\Desktop\test\meco news scraper\meco_news\storage.py", line 515, in __init__
+    self._runtime_context = RuntimeContext.acquire(
+                            ~~~~~~~~~~~~~~~~~~~~~~^
+        self.path,
+        ^^^^^^^^^^
+        owner=f"state-writer:{os.getpid()}:{uuid.uuid4().hex}",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\Desktop\test\meco news scraper\meco_news\maintenance.py", line 652, in acquire
+    os.replace(tmp_name, target)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\user\\AppData\\Local\\Temp\\tmpxnejb31i\\race.db.runtime.d\\a643c395f3e21ca2ab22c76c7ad10830.json.u7270jlo' -> 'C:\\Users\\user\\AppData\\Local\\Temp\\tmpxnejb31i\\race.db.runtime.d\\a643c395f3e21ca2ab22c76c7ad10830.json'
+=========================== short test summary info ===========================
+FAILED tests/test_c22_lease_race.py::TrueProcessLeaseRaceTests::test_fifty_processes_yield_exactly_one_lease_winner
+1 failed, 640 passed, 1 skipped in 100.52s (0:01:40)

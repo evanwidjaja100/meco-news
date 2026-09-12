@@ -1,0 +1,118 @@
+{
+  "captured_at": "2026-09-11T21:54:00+07:00",
+  "head": "952a72a",
+  "branch": "main",
+  "phase": "phase2-signing-sbom-wiring-cg6-local",
+  "checks": [
+    {
+      "id": "unit-pytest",
+      "command": "python -m pytest -q",
+      "expected": "full suite green on final tree",
+      "actual": "658 passed, 1 skipped, 0 failed",
+      "artifact": "phase2-pytest-final.log",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "unit-unittest",
+      "command": "python -B -m unittest discover -s tests",
+      "expected": "full suite green on final tree",
+      "actual": "Ran 659 tests, OK (skipped=1)",
+      "artifact": "phase2-unittest-final.err",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "signature-regressions",
+      "command": "python -B -m unittest tests.test_release_signature tests.test_sbom_generation tests.test_group8_gates",
+      "expected": "38 tests green",
+      "actual": "Ran 40 tests, OK",
+      "artifact": "phase2-pytest-final.log (included in full run)",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "ruff",
+      "command": "python -m ruff check meco_news tests scripts",
+      "expected": "no findings",
+      "actual": "All checks passed",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "mypy",
+      "command": "python -m mypy meco_news",
+      "expected": "strict clean on 22 modules",
+      "actual": "Success: no issues found in 22 source files",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "build",
+      "command": "python -m build --no-isolation",
+      "expected": "wheel plus sdist",
+      "actual": "meco_news-2.0.0-py3-none-any.whl plus meco_news-2.0.0.tar.gz",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "sbom-provenance-create",
+      "command": "generate-sbom.py plus release-provenance.py create with wheel, sdist, sbom-report",
+      "expected": "SBOM attached, unsigned provenance created",
+      "actual": "sbom attached; provenance passed without gates",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "verify-sbom-only",
+      "command": "release-provenance.py --verify --require-sbom",
+      "expected": "pass on exact candidate artifacts",
+      "actual": "failures [], passed true",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "verify-signature-fail-closed-unsigned",
+      "command": "release-provenance.py --verify --require-sbom --require-signature (no bundles)",
+      "expected": "fail closed with signature:not_signed",
+      "actual": "failures [signature:not_signed], exit 1",
+      "exit_code": 1,
+      "result": "passed"
+    },
+    {
+      "id": "verify-signature-fail-closed-dummy",
+      "command": "create with dummy bundle bytes, then --verify --require-signature",
+      "expected": "fail closed without local signer",
+      "actual": "failures [signature:verifier_unavailable], exit 1",
+      "exit_code": 1,
+      "result": "passed"
+    },
+    {
+      "id": "build-lock-overlap",
+      "command": "cross-check dev and build lock pins",
+      "expected": "no version conflicts",
+      "actual": "conflicts none; identical overlap setuptools, typing-extensions, wheel",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "id": "ci-script-rehearsal",
+      "command": "generate-sbom plus release-provenance create with three --signature-bundle mappings plus --verify with both flags (dummy bundles, temp dir)",
+      "expected": "plumbing passes; only the Rekor step fails closed locally",
+      "actual": "create exit 0, 3 bundles bound, state signed; sbom-only verify exit 0; both-flags verify exit 1 with 3x signature:verifier_unavailable",
+      "exit_code": 1,
+      "result": "passed"
+    },
+    {
+      "id": "secret-hygiene",
+      "command": "pattern scan over all 26 changed paths for tokens, keys, passwords, private keys",
+      "expected": "0 hits; no-secrets posture preserved for the merge",
+      "actual": "scanned 60 files, hits: 0",
+      "exit_code": 0,
+      "result": "passed"
+    }
+  ],
+  "open_scope": "CG6 CI positive control (first green package run on protected main); Phases 3-5",
+  "release_decision": "NO-GO",
+  "phase2_local_wiring": "COMPLETE"
+}

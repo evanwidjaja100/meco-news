@@ -303,6 +303,63 @@ class BackupCoverageTests(unittest.TestCase):
             with patch.object(backup, "_path_exists", return_value=True), self.assertRaises(StateError):
                 backup._restore_orphan_sidecar_path(target, "-wal")
 
+    def test_fresh_target_restore_holds_sendable_chunks_for_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            live = root / "live.db"
+            with StateStore(live) as store:
+                store.acquire_lease("delivery", "owner", 180)
+                delivery = store.create_delivery("2026-09-11", owner_id="owner")
+                store.prepare_delivery(
+                    delivery.delivery_id, [_item()], ["<b>fixture</b>"],
+                    owner_id="owner", target_snapshot="snap",
+                )
+                chunk_id = store.due_chunks(delivery.delivery_id)[0].chunk_id
+                store.release_lease("delivery", "owner")
+            artifact = create_backup(live, root / "backups")
+            with StateStore(live) as store:
+                store.acquire_lease("delivery", "owner", 180)
+                store.begin_chunk_attempt(chunk_id, run_id="r", owner_id="owner")
+                store.finish_chunk(chunk_id, "accepted", run_id="r", owner_id="owner",
+                                   telegram_message_id="9")
+                store.release_lease("delivery", "owner")
+            fresh = root / "fresh.db"
+            restore_backup(artifact.database, fresh)
+            with StateStore(fresh, readonly=True) as store:
+                row = store.connection.execute(
+                    "SELECT state,error_class FROM outbox_chunks").fetchone()
+                self.assertEqual(tuple(row), ("ambiguous", "restored_without_reconciliation_evidence"))
+                info = store.delivery(delivery.delivery_id)
+                self.assertIsNotNone(info)
+                assert info is not None
+                self.assertEqual(info.state, "needs_attention")
+
+    def test_fresh_target_restore_without_sendable_work_is_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            live = root / "live.db"
+            with StateStore(live) as store:
+                store.acquire_lease("delivery", "owner", 180)
+                delivery = store.create_delivery("2026-09-11", owner_id="owner")
+                store.prepare_delivery(
+                    delivery.delivery_id, [_item()], ["<b>fixture</b>"],
+                    owner_id="owner", target_snapshot="snap",
+                )
+                chunk_id = store.due_chunks(delivery.delivery_id)[0].chunk_id
+                store.begin_chunk_attempt(chunk_id, run_id="r", owner_id="owner")
+                store.finish_chunk(chunk_id, "accepted", run_id="r", owner_id="owner",
+                                   telegram_message_id="9")
+                store.release_lease("delivery", "owner")
+            artifact = create_backup(live, root / "backups")
+            fresh = root / "fresh.db"
+            restore_backup(artifact.database, fresh)
+            with StateStore(fresh, readonly=True) as store:
+                info = store.delivery(delivery.delivery_id)
+                self.assertIsNotNone(info)
+                assert info is not None
+                self.assertEqual(info.state, "completed")
+                states = {row[0] for row in store.connection.execute("SELECT state FROM outbox_chunks").fetchall()}
+                self.assertEqual(states, {"sent"})
 
 if __name__ == "__main__":
     unittest.main()

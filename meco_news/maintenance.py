@@ -24,6 +24,7 @@ import sqlite3
 import secrets
 import sys
 import tempfile
+import time
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
@@ -110,6 +111,28 @@ _LOCAL_GUARDS: dict[str, _GuardFile] = {}
 _LOCAL_SHARED_GUARDS: dict[str, tuple[_GuardFile, int]] = {}
 
 
+_REPLACE_ATTEMPTS = 10
+_REPLACE_RETRY_DELAY_SECONDS = 0.05
+
+
+def _durable_replace(temporary: str | Path, target: str | Path) -> None:
+    """Publish a staged file, tolerating transient Windows file locks.
+    Real-time scanners can briefly lock a brand-new temp file so the publish
+    fails with PermissionError even though no rival holder exists. Retry
+    briefly, then raise: a persistent failure still fails closed.
+    """
+    last_error: PermissionError | None = None
+    for _ in range(_REPLACE_ATTEMPTS):
+        try:
+            os.replace(temporary, target)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            time.sleep(_REPLACE_RETRY_DELAY_SECONDS)
+    assert last_error is not None
+    raise last_error
+
+
 def _advance_durable_fence(db_path: Path, payload: dict[str, Any]) -> None:
     """Publish a small, atomic fence record for cooperating writers.
 
@@ -126,7 +149,7 @@ def _advance_durable_fence(db_path: Path, payload: dict[str, Any]) -> None:
             json.dump({"token": payload["token"], "owner": payload["owner"], "pid": payload["pid"], "process_identity": payload.get("process_identity", "")}, handle)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, target)
+        _durable_replace(temporary, target)
     except BaseException:
         with contextlib.suppress(OSError):
             Path(temporary).unlink(missing_ok=True)
@@ -448,7 +471,7 @@ class MaintenanceContext:
                 json.dump(payload, handle)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(tmp_name, marker)
+            _durable_replace(tmp_name, marker)
             created_marker = True
             _advance_durable_fence(resolved, payload)
             _remember_guard(token, guard)
@@ -649,7 +672,7 @@ class RuntimeContext:
                 json.dump(payload, handle)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(tmp_name, target)
+            _durable_replace(tmp_name, target)
         except BaseException:
             with contextlib.suppress(OSError):
                 if "tmp_name" in locals():
@@ -712,7 +735,7 @@ class RuntimeContext:
                 json.dump(payload, handle)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(tmp_name, target)
+            _durable_replace(tmp_name, target)
         except BaseException:
             with contextlib.suppress(OSError):
                 Path(tmp_name).unlink(missing_ok=True)

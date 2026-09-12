@@ -3,7 +3,7 @@
   "branches": [
     {
       "file": "meco_news/app.py",
-      "line": 1009,
+      "line": 1010,
       "description": "in-flight failure remains operator attention",
       "tests": [
         "test_live_outcome_matrix_for_existing_prepared_delivery"
@@ -11,7 +11,7 @@
     },
     {
       "file": "meco_news/app.py",
-      "line": 1266,
+      "line": 1267,
       "description": "scheduler consumes terminal outcome",
       "tests": [
         "test_daemon_consumes_typed_terminal_outcome_and_rejects_lost_heartbeat",
@@ -62,7 +62,7 @@
     },
     {
       "file": "meco_news/collectors.py",
-      "line": 630,
+      "line": 638,
       "description": "partial worker frame is bounded",
       "tests": [
         "test_worker_entry_and_frame_failure_boundaries"
@@ -87,7 +87,7 @@
     },
     {
       "file": "meco_news/collectors.py",
-      "line": 281,
+      "line": 284,
       "description": "raw-payload DTD/entity scan rejects before expansion",
       "tests": [
         "test_doctype_rejected_in_every_scanned_encoding",
@@ -97,7 +97,7 @@
     },
     {
       "file": "meco_news/collectors.py",
-      "line": 891,
+      "line": 899,
       "description": "worker memory_error frame propagates as MemoryError",
       "tests": [
         "test_supervisor_handles_invalid_partial_memory_and_start_failure"
@@ -105,7 +105,7 @@
     },
     {
       "file": "meco_news/collectors.py",
-      "line": 721,
+      "line": 729,
       "description": "live worker is terminated while an exited worker is left alone",
       "tests": [
         "test_spawned_fast_worker_returns_typed_result_and_exits",

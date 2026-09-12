@@ -1,9 +1,10 @@
-# Signature trust root - PROPOSED (not in effect)
+# Signature trust root - APPROVED Option A (wired; CI positive control pending)
 
-Status: PROPOSED - awaiting owner signature.
+Status: APPROVED by owner 2026-09-11 (Asia/Jakarta) - Option A (Sigstore keyless); wired 2026-09-11 (uncommitted Phase 2). First green CI `package` run on `main` is still required as the Rekor positive control before any promotion.
 Drafted: 2026-09-09 (Asia/Jakarta) as an implementer draft, not an approval.
+Approved: 2026-09-11 (Asia/Jakarta) - owner chose Option A; expected verification identity pinned in the signature block below; wiring PR pending.
 
-This document puts nothing into effect. The --require-signature gate in scripts/release-provenance.py stays fail-closed (signature:not_signed / signature:unverifiable) until the owner signs one option below AND a follow-up implementation PR wires it. The release decision stays NO-GO regardless; the other blockers (target evidence, approvals, 72-hour observation) are unaffected.
+This document now records the owner decision (Option A, 2026-09-11); wiring is implemented (uncommitted Phase 2). The --require-signature gate in scripts/release-provenance.py stays fail-closed (signature:not_signed / signature:unverifiable / signature:verifier_unavailable) everywhere except a CI run that verifies bound bundles against the pinned identity plus Rekor. The release decision stays NO-GO regardless; the other blockers (target evidence, approvals, 72-hour observation) are unaffected.
 
 ## Problem
 
@@ -34,10 +35,10 @@ CI actions are already hash-pinned, and provenance plus SBOM are already generat
 
 ## Owner signature block
 
-- Chosen option (A or B): __________
-- Pinned verification identity or public-key path (as applicable): __________
-- Owner name: __________
-- Date: __________
-- Approver signature (out of band): __________
+- Chosen option (A or B): A
+- Pinned verification identity or public-key path (as applicable): Sigstore keyless - expected identity repository evanwidjaja100/meco-news, workflow .github/workflows/ci.yml, ref refs/heads/main; Rekor entry required (to be enforced by the wiring PR)
+- Owner name: Evan Widjaja
+- Date: 2026-09-11
+- Approver signature (out of band): owner approval in chat 2026-09-11 (Asia/Jakarta): Option A, RPO 24h, RTO 60m, alerts to telegram; proceed with phase 0
 
-Until this block is completed AND the wiring PR merges green, the gate reports signature:unverifiable and promotion stays blocked by design.
+The decision block is completed; until the wiring merges green on protected main, promotion stays blocked by design. Local runs prove fail-closed behavior only; the OIDC positive control exists solely in the CI package job.

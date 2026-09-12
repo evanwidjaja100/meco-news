@@ -263,6 +263,9 @@ def _entry_has_invalid_scalar(entry: ET.Element) -> bool:
     return False
 
 
+_XML_ILLEGAL_C0_RE = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
 def _parse_xml_once(
     payload: bytes,
     feed_name: str,
@@ -294,6 +297,11 @@ def _parse_xml_once(
         payload.decode("utf-8")
     except UnicodeDecodeError:
         payload = payload.decode("utf-8", errors="replace").encode("utf-8")
+    # C4.1: XML-illegal C0 controls (except tab/LF/CR) abort the whole feed in
+    # expat, killing healthy siblings of one hostile item. Map them to space,
+    # like the text policy, so per-item isolation still applies. This cannot
+    # hide a DTD: the rejected markers contain no C0 bytes.
+    payload = _XML_ILLEGAL_C0_RE.sub(b" ", payload)
     parser = ET.XMLPullParser(events=("start", "end"))
     depth = 0
     nodes = 0
