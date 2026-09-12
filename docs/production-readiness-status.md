@@ -151,6 +151,13 @@ This is an implementation checkpoint, not a closure certificate. Code, tests, an
 - CG6 Rekor/OIDC positive control: the main `package` job signed wheel, sdist, and `dist/sbom.json` with Fulcio ephemeral certificates bound to `https://github.com/evanwidjaja100/meco-news/.github/workflows/ci.yml@refs/heads/main` and verified with `--require-sbom --require-signature` (`"passed": true, "failures": []`, SBOM attached).
 - Deadlock found and fixed from the first PR run: the pinned-main verify identity could never match branch-run signatures, so `package` failed closed on every branch while policy required it green before merge. CI now records and verifies the signing run's own `github.workflow_ref` identity (repo/workflow/ref-scoped; foreign identities rejected); the default pin stays `refs/heads/main`, which is the only identity that counts for promotion.
 - Still open: exact-candidate container proof, target-host reports with second operator (CG5/CG6), timed restore drill and alert wiring/firing/recovery receipts (CG5), shadow/canary/rollback rehearsal and 72-hour observation (CG7). Decision stays **NO-GO**.
+## 2026-09-12 update (phase 3 container proof, local)
+
+- Build-context sentinel passed on Docker Desktop (Linux daemon): lint clean, probe canary detected, negative controls excluded.
+- Exact candidate built once from pinned base `docker.io/library/python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f`, no rebuild between stages: `meco-news:phase3-20260912`, image `sha256:ff74ac361f241fef7510f3b04c65b04190618cecc7b07fd53b215edc13c06a89`, manifest `sha256:ec3a9f0f4f1fb36e250dd85fad130be62e310e9a8f82d87054803501b3e6453e`. Runtime smoke passed (`--config-show --json` inside the container).
+- Single-arch `amd64` recorded sufficient: owner target is Intel-based (owner statement 2026-09-12); multi-arch smoke waived unless an ARM target appears.
+- Promotion rule: ship this exact digest, never a retag or rebuild; digest binding recorded in docs/evidence/production-readiness/local-2026-09-12-phase3/verification.json.
+- Records: docs/evidence/production-readiness/local-2026-09-12-phase3/ (commands, verification, sentinel/build logs). Decision stays **NO-GO**.
 ## Verified local facts
 
 - 509 tests collected; the fresh full `pytest` suite passed.
