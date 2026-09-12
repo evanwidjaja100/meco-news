@@ -51,6 +51,7 @@ Reviewer 2026-09-11: owner self-review (Evan Widjaja) - accepted deviation from 
    plus layer/history/runtime canary verification and multi-arch smoke.
 2. Done when: base digest, final image digest, SBOM/provenance hashes bound in the release record;
    the promoted digest is this exact image, not a retag or rebuild.
+3. Status 2026-09-12: COMPLETE (local) - sentinel passed on Docker Desktop Linux daemon; candidate `meco-news:phase3-20260912` (image `sha256:ff74ac361f241fef7510f3b04c65b04190618cecc7b07fd53b215edc13c06a89`) built once from pinned base `sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f`; runtime smoke passed; single-arch amd64 per owner Intel target; evidence in docs/evidence/production-readiness/local-2026-09-12-phase3/. Promotion must ship this exact digest.
 
 ## Phase 4 - Target-host validation (CG5/CG6, second operator)
 

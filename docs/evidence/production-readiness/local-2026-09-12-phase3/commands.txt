@@ -1,0 +1,5 @@
+python scripts/verify-build-context.py --require-docker --json
+docker build --build-arg PYTHON_IMAGE=docker.io/library/python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f -t meco-news:phase3-20260912 .
+docker inspect meco-news:phase3-20260912
+docker history meco-news:phase3-20260912
+docker run --rm meco-news:phase3-20260912 --config-show --json

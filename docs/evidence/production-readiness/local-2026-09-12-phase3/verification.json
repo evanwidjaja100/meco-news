@@ -1,0 +1,16 @@
+{
+  "date": "2026-09-12",
+  "host": "windows/docker-desktop-4.81.0",
+  "daemon": {
+    "server": "29.6.1",
+    "os": "linux",
+    "arch": "x86_64"
+  },
+  "build_context_sentinel": "passed",
+  "base_image": "docker.io/library/python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f",
+  "candidate_tag": "meco-news:phase3-20260912",
+  "candidate_image_id": "sha256:ff74ac361f241fef7510f3b04c65b04190618cecc7b07fd53b215edc13c06a89",
+  "candidate_manifest": "sha256:ec3a9f0f4f1fb36e250dd85fad130be62e310e9a8f82d87054803501b3e6453e",
+  "runtime_smoke": "passed",
+  "note": "single build, no rebuild between stages; single-arch amd64 recorded sufficient per owner Intel target (2026-09-12); multi-arch smoke waived unless an ARM target appears"
+}
