@@ -86,8 +86,9 @@ jobs:
           python -m sigstore sign --bundle "$WHEEL.sigstore" "$WHEEL"
           python -m sigstore sign --bundle "$SDIST.sigstore" "$SDIST"
           python -m sigstore sign --bundle dist/sbom.json.sigstore dist/sbom.json
-          python scripts/release-provenance.py --root . --output dist/provenance.json --artifact "$WHEEL" --artifact "$SDIST" --sbom-report dist/sbom.json --signature-bundle "$WHEEL=$WHEEL.sigstore" --signature-bundle "$SDIST=$SDIST.sigstore" --signature-bundle "dist/sbom.json=dist/sbom.json.sigstore"
-          python scripts/release-provenance.py --output dist/provenance.json --verify --require-sbom --require-signature
+          IDENTITY="https://github.com/${{ github.workflow_ref }}"
+          python scripts/release-provenance.py --root . --output dist/provenance.json --artifact "$WHEEL" --artifact "$SDIST" --sbom-report dist/sbom.json --identity "$IDENTITY" --signature-bundle "$WHEEL=$WHEEL.sigstore" --signature-bundle "$SDIST=$SDIST.sigstore" --signature-bundle "dist/sbom.json=dist/sbom.json.sigstore"
+          python scripts/release-provenance.py --output dist/provenance.json --verify --require-sbom --require-signature --expected-identity "$IDENTITY"
       - name: Prepare isolated sdist build wheelhouse
         run: "python -m pip download --only-binary=:all: --require-hashes --dest build-tools -r requirements-build.lock"
       - name: Installed wheel smoke test outside checkout

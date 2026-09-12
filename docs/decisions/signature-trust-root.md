@@ -15,6 +15,7 @@ docs/release.md promotion requires externally verified attestation, but the repo
 - Signing happens in the package job of .github/workflows/ci.yml with a minimal id-token: write permission scoped to that job. The top-level workflow permission stays contents: read.
 - Fulcio issues a short-lived certificate bound to the CI identity. Artifacts (wheel, sdist, dist/sbom.json) are signed with sigstore-python, whose pinned hash is added to requirements-build.lock. No long-lived secret is stored anywhere, which preserves the repository no-secrets posture.
 - Signatures are logged to the Rekor transparency log. Verification pins the expected identity (repository URI, workflow path, git ref) plus the Rekor entry. These expected values are recorded out of band by the release approver, never self-asserted by the artifact.
+- The package job verifies against the signing run's own workflow-ref identity (`https://github.com/${{ github.workflow_ref }}`), which equals the pinned `refs/heads/main` identity on main. Branch and PR runs therefore prove signing end-to-end without weakening the promotion trust root: only the main-ref identity counts for CG6 and promotion, and only `ci.yml` identities from this repository are accepted.
 - scripts/release-provenance.py gains an --attestation-report input consumed only by an external verifier step. The standing rule that a self-asserted signed state yields signature:unverifiable is kept.
 
 ## Option B - Offline cosign key in owner custody

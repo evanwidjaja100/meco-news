@@ -34,12 +34,18 @@ EXPECTED_IDENTITY = "https://github.com/evanwidjaja100/meco-news/.github/workflo
 
 
 def _stub_verifier(outcome: str):  # type: ignore[no-untyped-def]
-    def _fake(bundle: Path, artifact: Path) -> str:
+    def _fake(bundle: Path, artifact: Path, expected_identity: str | None = None) -> str:
         assert bundle.is_file(), bundle
         assert artifact.is_file(), artifact
         return outcome
 
     return _fake
+
+
+BRANCH_IDENTITY = (
+    "https://github.com/evanwidjaja100/meco-news/.github/workflows/ci.yml"
+    "@refs/heads/release/phase2-signing-sbom"
+)
 
 
 def _make_signed(root: Path, verifier_outcome: str = "verified") -> tuple[Path, Path, Path]:
@@ -273,6 +279,114 @@ class SignatureBindingTests(unittest.TestCase):
             provenance._verify_bundle = _stub_verifier("verified")  # type: ignore[method-assign]
             try:
                 result = provenance.verify_provenance(output, require_signature=True)
+            finally:
+                provenance._verify_bundle = original  # type: ignore[method-assign]
+        self.assertTrue(result["passed"], result["failures"])
+
+
+class WorkflowRefIdentityTests(unittest.TestCase):
+    def test_create_records_branch_workflow_ref_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "candidate.whl"
+            artifact.write_bytes(b"candidate-bytes")
+            bundle = root / "candidate.whl.sigstore"
+            bundle.write_bytes(b"bundle-bytes")
+            document = provenance.create_provenance(
+                root,
+                root / "provenance.json",
+                [artifact],
+                signature_bundles={str(artifact): str(bundle)},
+                identity=BRANCH_IDENTITY,
+            )
+            raw = json.loads(document.read_text(encoding="utf-8"))
+        self.assertEqual(raw["signature"]["identity_policy"]["identity"], BRANCH_IDENTITY)
+
+    def test_create_rejects_foreign_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "candidate.whl"
+            artifact.write_bytes(b"candidate-bytes")
+            with self.assertRaises(ValueError):
+                provenance.create_provenance(
+                    root,
+                    root / "provenance.json",
+                    [artifact],
+                    identity="https://github.com/other/repo/.github/workflows/ci.yml@refs/heads/main",
+                )
+
+    def test_verify_passes_expected_identity_to_bundles(self) -> None:
+        seen: list[str | None] = []
+
+        def _recording(bundle: Path, artifact: Path, expected_identity: str | None = None) -> str:
+            assert bundle.is_file(), bundle
+            assert artifact.is_file(), artifact
+            seen.append(expected_identity)
+            return "verified"
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document, _, _ = _make_signed(root)
+            original = provenance._verify_bundle
+            provenance._verify_bundle = _recording  # type: ignore[method-assign]
+            try:
+                result = provenance.verify_provenance(
+                    document, require_signature=True, expected_identity=BRANCH_IDENTITY
+                )
+            finally:
+                provenance._verify_bundle = original  # type: ignore[method-assign]
+        self.assertTrue(result["passed"], result["failures"])
+        self.assertEqual(seen, [BRANCH_IDENTITY])
+
+    def test_verify_rejects_foreign_expected_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document, _, _ = _make_signed(root)
+            with self.assertRaises(ValueError):
+                provenance.verify_provenance(
+                    document,
+                    require_signature=True,
+                    expected_identity="https://example.invalid/workflow@refs/heads/main",
+                )
+
+    def test_cli_identity_with_verify_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "p.json"
+            output.write_text("{}", encoding="utf-8")
+            code = provenance.main(["--output", str(output), "--verify", "--identity", BRANCH_IDENTITY])
+        self.assertEqual(code, 1)
+
+    def test_cli_expected_identity_without_verify_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "candidate.whl"
+            artifact.write_bytes(b"candidate-bytes")
+            code = provenance.main(
+                ["--root", str(root), "--output", str(root / "p.json"), "--artifact", str(artifact),
+                 "--expected-identity", BRANCH_IDENTITY]
+            )
+        self.assertEqual(code, 1)
+
+    def test_cli_branch_identity_roundtrip_verifies_with_stub(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "candidate.whl"
+            artifact.write_bytes(b"candidate-bytes")
+            bundle = root / "candidate.whl.sigstore"
+            bundle.write_bytes(b"bundle-bytes")
+            output = root / "provenance.json"
+            code = provenance.main(
+                ["--root", str(root), "--output", str(output), "--artifact", str(artifact),
+                 "--identity", BRANCH_IDENTITY, "--signature-bundle", f"{artifact}={bundle}"]
+            )
+            self.assertEqual(code, 0)
+            original = provenance._verify_bundle
+            provenance._verify_bundle = _stub_verifier("verified")  # type: ignore[method-assign]
+            try:
+                result = provenance.verify_provenance(
+                    output, require_signature=True, expected_identity=BRANCH_IDENTITY
+                )
             finally:
                 provenance._verify_bundle = original  # type: ignore[method-assign]
         self.assertTrue(result["passed"], result["failures"])

@@ -16,7 +16,17 @@ _FINGERPRINT_SKIP_NAMES = frozenset({".env", ".env.example"})
 
 _SIGSTORE_OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 _SIGSTORE_IDENTITY = "https://github.com/evanwidjaja100/meco-news/.github/workflows/ci.yml@refs/heads/main"
+_WORKFLOW_IDENTITY_PREFIX = (
+    "https://github.com/evanwidjaja100/meco-news/.github/workflows/ci.yml@refs/"
+)
 _VERIFY_TIMEOUT_SECONDS = 120
+
+
+def _checked_identity(value: str | None) -> str:
+    identity = value or _SIGSTORE_IDENTITY
+    if not identity.startswith(_WORKFLOW_IDENTITY_PREFIX):
+        raise ValueError("identity must be this repository workflow ref identity")
+    return identity
 
 
 def _hash(path: Path) -> str:
@@ -75,6 +85,7 @@ def create_provenance(
     context_report: str | Path | None = None,
     sbom_report: str | Path | None = None,
     signature_bundles: dict[str | Path, str | Path] | None = None,
+    identity: str | None = None,
 ) -> Path:
     repository = Path(root).resolve()
     files = [Path(value).resolve() for value in artifacts]
@@ -119,7 +130,7 @@ def create_provenance(
         "state": "signed" if signed else "not_signed",
         "required_for_promotion": True,
         "bundles": bundle_records,
-        "identity_policy": {"oidc_issuer": _SIGSTORE_OIDC_ISSUER, "identity": _SIGSTORE_IDENTITY},
+        "identity_policy": {"oidc_issuer": _SIGSTORE_OIDC_ISSUER, "identity": _checked_identity(identity)},
     }
     payload = {
         "schema_version": 1,
@@ -172,19 +183,22 @@ def _sbom_failures(raw: dict[str, Any]) -> list[str]:
     return []
 
 
-def _verify_bundle(bundle: Path, artifact: Path) -> str:
-    """Verify one Sigstore bundle against the pinned CI identity.
+def _verify_bundle(bundle: Path, artifact: Path, expected_identity: str | None = None) -> str:
+    """Verify one Sigstore bundle against the expected CI workflow-ref identity.
 
-    Returns "verified", "rejected", or "unavailable" when sigstore-python
-    is not installed or the verifier does not complete in time. Rejection
-    and absence both fail the gate; a missing verifier never weakens it.
+    The default is the refs/heads/main pin; CI passes its own workflow ref so
+    branch runs verify the identity they actually signed with. Returns
+    "verified", "rejected", or "unavailable" when sigstore-python is not
+    installed or the verifier does not complete in time. Rejection and
+    absence both fail the gate; a missing verifier never weakens it.
     """
+    identity = _checked_identity(expected_identity)
     try:
         completed = subprocess.run(
             [
                 sys.executable, "-m", "sigstore", "verify", "identity",
                 "--bundle", str(bundle),
-                "--cert-identity", _SIGSTORE_IDENTITY,
+                "--cert-identity", identity,
                 "--cert-oidc-issuer", _SIGSTORE_OIDC_ISSUER,
                 str(artifact),
             ],
@@ -204,8 +218,8 @@ def _verify_bundle(bundle: Path, artifact: Path) -> str:
     return "rejected"
 
 
-def _signature_failures(raw: dict[str, Any]) -> list[str]:
-    """Check bound Sigstore bundles against the pinned identity policy."""
+def _signature_failures(raw: dict[str, Any], expected_identity: str | None = None) -> list[str]:
+    """Check bound Sigstore bundles against the expected identity policy."""
     signature = raw.get("signature", {})
     if not isinstance(signature, dict) or signature.get("state") != "signed":
         return ["signature:not_signed"]
@@ -246,7 +260,7 @@ def _signature_failures(raw: dict[str, Any]) -> list[str]:
     if failures:
         return failures
     for key, entry in by_artifact.items():
-        outcome = _verify_bundle(Path(str(entry["path"])), Path(key))
+        outcome = _verify_bundle(Path(str(entry["path"])), Path(key), expected_identity)
         if outcome == "unavailable":
             failures.append("signature:verifier_unavailable")
         elif outcome != "verified":
@@ -256,7 +270,11 @@ def _signature_failures(raw: dict[str, Any]) -> list[str]:
 
 
 def verify_provenance(
-    path: str | Path, *, require_signature: bool = False, require_sbom: bool = False
+    path: str | Path,
+    *,
+    require_signature: bool = False,
+    require_sbom: bool = False,
+    expected_identity: str | None = None,
 ) -> dict[str, Any]:
     target = Path(path).resolve()
     raw = json.loads(target.read_text(encoding="utf-8"))
@@ -283,7 +301,7 @@ def verify_provenance(
             failures.extend(_sbom_failures(raw))
     if require_signature:
         failures.extend(_context_failures(raw))
-        failures.extend(_signature_failures(raw))
+        failures.extend(_signature_failures(raw, expected_identity))
     return {
         "passed": not failures,
         "failures": failures,
@@ -300,6 +318,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--context-report")
     parser.add_argument("--sbom-report")
     parser.add_argument("--signature-bundle", action="append", default=[], metavar="ARTIFACT=BUNDLE")
+    parser.add_argument("--identity", default=None, help="Workflow-ref identity to record when creating provenance")
+    parser.add_argument("--expected-identity", default=None, help="Workflow-ref identity to verify against")
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--require-signature", action="store_true")
     parser.add_argument("--require-sbom", action="store_true")
@@ -307,6 +327,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.signature_bundle and args.verify:
             raise ValueError("--signature-bundle is only used when creating provenance")
+        if args.identity and args.verify:
+            raise ValueError("--identity is only used when creating provenance")
+        if args.expected_identity and not args.verify:
+            raise ValueError("--expected-identity is only used when verifying provenance")
         bundles: dict[str, str] = {}
         for item in args.signature_bundle:
             name, separator, bundle = item.partition("=")
@@ -317,7 +341,10 @@ def main(argv: list[str] | None = None) -> int:
             bundles[name] = bundle
         if args.verify:
             report = verify_provenance(
-                args.output, require_signature=args.require_signature, require_sbom=args.require_sbom
+                args.output,
+                require_signature=args.require_signature,
+                require_sbom=args.require_sbom,
+                expected_identity=args.expected_identity,
             )
         else:
             if not args.artifact:
@@ -329,6 +356,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.context_report,
                 args.sbom_report,
                 bundles or None,
+                identity=args.identity,
             )
             report = {"passed": True, "provenance": str(path)}
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
