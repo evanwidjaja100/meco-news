@@ -33,6 +33,10 @@
 
 - Ledger (PR #34): PR #34 merged to main @ 6269d9f; post-merge run 34488499738 completed success on protected main. Full local pytest re-verified 631 tests (630 passed, 1 skipped, zero failures). No behavior change; release decision remains NO-GO.
 
+- Signing/SBOM wiring (PR #36): Sigstore keyless signing (Option A) in the CI `package` job, which holds the only `id-token: write` grant, installs the hash-locked dev plus build locks, signs wheel/sdist/`dist/sbom.json` with the pinned sigstore, and verifies with `--require-sbom --require-signature`. `scripts/release-provenance.py` binds `--signature-bundle ARTIFACT=BUNDLE` per artifact/SBOM and verifies each bundle with `sigstore verify identity` against the expected workflow-ref identity (`--identity` / `--expected-identity`, repo/workflow/ref-scoped, foreign identities rejected, default pin `refs/heads/main`). Adds `tests/test_release_signature.py` (24 tests: bind/pass, tamper/deleted/SBOM-without-bundle failures, unknown/malformed/duplicate CLI, unavailable/rejected/timeout verifier, branch-identity record/override/roundtrip). Decision stays NO-GO.
+
+- Ledger (PR #36): PR #36 merged to main @ 6027e64; post-merge run 34682764576 completed success on protected main. CG6 Rekor/OIDC positive control: `package` signed wheel/sdist/`dist/sbom.json` with Fulcio ephemeral certificates bound to `...ci.yml@refs/heads/main` and verified `"passed": true, "failures": []` with the SBOM attached. No behavior change; release decision remains NO-GO.
+
 ## 2.0.0 - production-readiness implementation
 
 - Added typed strict configuration and safe CLI/preflight/status/health/backup modes.
